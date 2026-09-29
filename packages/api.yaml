@@ -1,0 +1,27 @@
+# =============================================================================
+# API native ESPHome / Home Assistant
+# Connexion directe
+# device <-> Home Assistant, chiffrée, sans dépendre d'un broker tiers.
+# C'est le mode d'intégration ESPHome/HA recommandé aujourd'hui (les logs
+# `esphome logs` passent aussi par cette connexion, plus fiable que MQTT).
+# =============================================================================
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  # Équivalent watchdog : si HA ne se connecte plus, reboot (défaut 15 min)
+  reboot_timeout: 15min
+
+# Alternative / complément : publication MQTT brute (topics hem/XXXX/...,
+# utile si un autre système que Home Assistant consomme ces données).
+# Peut être activé EN PLUS de api: ci-dessus sans conflit (juste des
+# entités HA en double si mqtt.discovery reste à true).
+# mqtt:
+#   broker: !secret mqtt_broker
+#   port: 1883
+#   username: !secret mqtt_user
+#   password: !secret mqtt_password
+#   discovery: false   # true => doublons avec les entités déjà créées par api:
+#   discovery_prefix: homeassistant
+#   # Équivalent WATCHDOG_MQTT_TIMEOUT (10 min sans MQTT -> reboot)
+#   reboot_timeout: 10min

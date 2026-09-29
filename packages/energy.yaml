@@ -1,0 +1,218 @@
+# =============================================================================
+# Capteurs dérivés - référence batterie = JK BMS (RS485)
+#   - puissance JK lissée (table circulaire, fenêtre/intervalle réglables)
+#   - puissance maison = production PV (PZEM-017) - puissance batterie JK
+#   - énergies JK chargée/déchargée cumulées (Wh, tableau de bord Énergie HA)
+#   - énergie restante / nominale JK (Wh), temps restant estimé (min)
+#   - énergies JBD chargée/déchargée (inchangées, le JBD reste en BLE)
+#
+# Aucune autre mesure de tension batterie n'est utilisée que jk_voltage.
+# =============================================================================
+
+globals:
+  - id: pw_avg_buffer
+    type: float[100]
+  - id: pw_avg_idx
+    type: int
+    initial_value: '0'
+  - id: pw_avg_count
+    type: int
+    initial_value: '0'
+  - id: pw_avg_last_ms
+    type: uint32_t
+    initial_value: '0'
+
+number:
+  - platform: template
+    name: "JK Lissage Fenêtre"
+    id: pw_avg_window
+    min_value: 1
+    max_value: 100
+    step: 1
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    entity_category: config
+    mode: box
+    icon: "mdi:chart-bell-curve"
+  - platform: template
+    name: "JK Lissage Intervalle"
+    id: pw_avg_interval
+    min_value: 1
+    max_value: 30
+    step: 1
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+    entity_category: config
+    unit_of_measurement: s
+    mode: box
+    icon: "mdi:timer-outline"
+
+sensor:
+  # Puissance JK signée (+ = charge) lissée : une lecture par intervalle dans
+  # une table de 100 cases, moyenne des N plus récentes (N = fenêtre).
+  - platform: template
+    name: "JK Puissance moyenne"
+    id: battery_power_avg
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      float v = id(jk_power).state;
+      if (isnan(v)) return {};
+      uint32_t now = millis();
+      uint32_t interval_ms = (uint32_t) id(pw_avg_interval).state * 1000;
+      if (interval_ms < 1000) interval_ms = 1000;
+      if (id(pw_avg_count) > 0 && (now - id(pw_avg_last_ms)) < interval_ms)
+        return {};
+      id(pw_avg_last_ms) = now;
+      id(pw_avg_buffer)[id(pw_avg_idx)] = v;
+      id(pw_avg_idx) = (id(pw_avg_idx) + 1) % 100;
+      if (id(pw_avg_count) < 100)
+        id(pw_avg_count) += 1;
+      int window = (int) id(pw_avg_window).state;
+      if (window < 1) window = 1;
+      if (window > 100) window = 100;
+      int n = id(pw_avg_count) < window ? id(pw_avg_count) : window;
+      float sum = 0;
+      int pos = id(pw_avg_idx);
+      for (int i = 0; i < n; i++) {
+        pos = (pos + 99) % 100;
+        sum += id(pw_avg_buffer)[pos];
+      }
+      return sum / n;
+
+  # Consommation maison côté DC : production PV - charge batterie JK.
+  # NB : le PZEM-017 mesure AVANT le régulateur, la valeur inclut donc les
+  # pertes du régulateur (légère surestimation de la consommation).
+  - platform: template
+    name: "Maison Puissance"
+    id: house_power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      float pv = id(pv_power).state;
+      float bat = id(jk_power).state;   // + = charge batterie
+      if (isnan(bat)) return {};        // pas de référence batterie = pas de calcul
+      if (isnan(pv)) pv = 0;
+      float p = pv - bat;
+      return p < 0 ? 0 : p;
+
+  - platform: integration
+    name: "Maison Énergie"
+    id: house_energy
+    sensor: house_power
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
+
+  # Énergie restante JK (Wh) = capacité restante (Ah) x tension JK
+  - platform: template
+    name: "JK Énergie restante"
+    id: battery_remaining_wh
+    unit_of_measurement: Wh
+    device_class: energy_storage
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      float ah = id(jk_capacity_remaining).state;
+      float v = id(jk_voltage).state;
+      if (isnan(ah) || isnan(v)) return {};
+      return ah * v;
+
+  # Énergie nominale JK (Wh), déduite de restante / SoC (la capacité
+  # nominale n'est pas publiée dans les trames RS485 écoutées)
+  - platform: template
+    name: "JK Énergie nominale"
+    id: battery_nominal_energy_wh
+    unit_of_measurement: Wh
+    device_class: energy_storage
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: |-
+      float ah = id(jk_capacity_remaining).state;
+      float soc = id(jk_soc).state;
+      float v = id(jk_voltage).state;
+      if (isnan(ah) || isnan(soc) || isnan(v) || soc < 5) return {};
+      return ah / (soc / 100.0f) * v;
+
+  - platform: integration
+    name: "JK Énergie chargée"
+    id: battery_energy_charged
+    sensor: jk_power_charging
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
+  - platform: integration
+    name: "JK Énergie déchargée"
+    id: battery_energy_discharged
+    sensor: jk_power_discharging
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
+
+  # Temps restant estimé (min) : décharge avec réserve de 20 Ah si
+  # capacité > 20 Ah ; valeur négative = temps de charge restant.
+  - platform: template
+    name: "JK Temps restant estimé"
+    id: battery_time_remaining
+    unit_of_measurement: min
+    icon: "mdi:timer-sand"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      float cur = id(jk_current).state;
+      float v = id(jk_voltage).state;
+      float rem_ah = id(jk_capacity_remaining).state;
+      float soc = id(jk_soc).state;
+      float avg_p = id(battery_power_avg).state;
+      if (isnan(cur) || isnan(v) || isnan(rem_ah) || isnan(soc) || isnan(avg_p))
+        return {};
+      float rem_wh = rem_ah * v;
+      if (cur < -0.1f && avg_p < -1.0f) {
+        if (rem_ah > 20.0f)
+          return (rem_wh - (20.0f * v)) / (-avg_p) * 60.0f;
+        return rem_wh / (-avg_p) * 60.0f;
+      } else if (cur > 0.1f && avg_p > 1.0f && soc >= 5) {
+        float nom_ah = rem_ah / (soc / 100.0f);
+        float missing_wh = (nom_ah - rem_ah) * v;
+        return -(missing_wh / avg_p * 60.0f);
+      }
+      return 0.0f;
+
+  # --- JBD (BLE, inchangé) : énergies cumulées ---
+  - platform: integration
+    name: "Batterie Énergie chargée"
+    id: jbd_energy_charged
+    sensor: jbd_charging_power
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
+  - platform: integration
+    name: "Batterie Énergie déchargée"
+    id: jbd_energy_discharged
+    sensor: jbd_discharging_power
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0

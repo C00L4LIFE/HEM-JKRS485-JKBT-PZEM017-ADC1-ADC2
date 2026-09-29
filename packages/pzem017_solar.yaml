@@ -1,0 +1,424 @@
+# =============================================================================
+# Production solaire - PZEM-017 (DC, Modbus RTU sur RS485) côté PANNEAUX
+#
+# Branché AVANT le régulateur : mesure la tension et le courant des panneaux
+# (0-300 V, shunt externe 50/100/200/300 A sur le NÉGATIF panneaux). La
+# puissance mesurée est donc la production brute des panneaux, pertes du
+# régulateur incluses (~2-5 % de plus que ce qui arrive réellement en batterie).
+#
+# Bus : UART2 RX 13 / TX 14, MAX485 avec DE/RE sur GPIO18, 9600 bauds 8N2,
+# adresse Modbus 1 (défaut usine). Le PZEM-017 s'alimente en 5 V par son
+# connecteur de communication (5V / A / B / GND) : fournir 5 V + GND.
+#
+# Registres (doc Peacefair PZEM-003/017) :
+#   entrée 0x0000 tension 0.01 V | 0x0001 courant 0.01 A
+#          0x0002-03 puissance 0.1 W | 0x0004-05 énergie 1 Wh (mot faible d'abord)
+#   holding 0x0003 calibre shunt : 0 = 100 A, 1 = 50 A, 2 = 200 A, 3 = 300 A
+#
+# INTERFACE DE CALIBRATION (entités "PV Calib. ..." + select "PZEM Calibre shunt") :
+#   valeur calibrée = valeur brute x gain/100 + offset
+#   1. Choisir le calibre du shunt réellement installé ("PZEM Calibre shunt",
+#      écrit dans le PZEM - l'ancien réglage est perdu/inconnu).
+#   2. Zéro courant : de nuit (panneaux sans production), bouton
+#      "PV Calib. Zéro courant" -> offset courant = -lecture actuelle.
+#   3. Gain tension : mesurer la tension panneaux au multimètre, la saisir dans
+#      "PV Calib. Référence tension" puis bouton "PV Calib. Appliquer réf. tension".
+#   4. Gain courant : idem avec une pince ampèremétrique DC, en plein soleil
+#      (courant stable), "PV Calib. Référence courant" + "Appliquer réf. courant".
+#   Gains/offsets restent aussi réglables à la main ; tout est persistant (NVS).
+#   "PV Calib. Réinitialiser" remet gains à 100 % et offsets à 0.
+# =============================================================================
+
+uart:
+  - id: uart_pzem
+    rx_pin:
+      number: ${pzem_rx_pin}
+      mode:
+        input: true
+        pullup: true
+    tx_pin: ${pzem_tx_pin}
+    baud_rate: 9600
+    stop_bits: 2
+
+modbus:
+  - id: modbus_pzem
+    uart_id: uart_pzem
+    flow_control_pin: ${pzem_de_pin}
+    send_wait_time: 250ms
+
+modbus_controller:
+  - id: pzem017
+    modbus_id: modbus_pzem
+    address: 0x01
+    update_interval: 2s
+
+globals:
+  - id: pzem_last_ms
+    type: uint32_t
+    initial_value: '0'
+  # Compteur d'énergie PV (Wh) : offset = historique restauré (NVS au boot,
+  # puis helper HA si plus grand - fusion max, jamais de recul), raw =
+  # intégration depuis le boot, total publié = offset + raw. Même schéma que
+  # HEM_ESPHOME (MPPT2) et jk-bms (energy in/out).
+  - id: pv_energy_offset
+    type: float
+    initial_value: '0'
+  - id: pv_energy_restored
+    type: bool
+    initial_value: 'false'
+  - id: nvs_pv_energy
+    type: float
+    restore_value: true
+    initial_value: '0'
+
+# --- Calibration -----------------------------------------------------------
+number:
+  - platform: template
+    name: "PV Calib. Gain tension"
+    id: pv_cal_v_gain
+    unit_of_measurement: "%"
+    min_value: 80
+    max_value: 120
+    step: 0.01
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "PV Calib. Offset tension"
+    id: pv_cal_v_offset
+    unit_of_measurement: V
+    min_value: -10
+    max_value: 10
+    step: 0.01
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "PV Calib. Gain courant"
+    id: pv_cal_i_gain
+    unit_of_measurement: "%"
+    min_value: 50
+    max_value: 150
+    step: 0.01
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "PV Calib. Offset courant"
+    id: pv_cal_i_offset
+    unit_of_measurement: A
+    min_value: -5
+    max_value: 5
+    step: 0.01
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  # Valeurs de référence mesurées à l'instrument (utilisées par les boutons)
+  - platform: template
+    name: "PV Calib. Référence tension"
+    id: pv_cal_v_ref
+    unit_of_measurement: V
+    min_value: 0
+    max_value: 300
+    step: 0.01
+    initial_value: 0
+    optimistic: true
+    entity_category: config
+    mode: box
+    icon: "mdi:ruler"
+  - platform: template
+    name: "PV Calib. Référence courant"
+    id: pv_cal_i_ref
+    unit_of_measurement: A
+    min_value: 0
+    max_value: 300
+    step: 0.01
+    initial_value: 0
+    optimistic: true
+    entity_category: config
+    mode: box
+    icon: "mdi:ruler"
+
+select:
+  # Calibre du shunt, écrit directement dans le PZEM-017 (registre 0x0003)
+  - platform: modbus_controller
+    modbus_controller_id: pzem017
+    name: "PZEM Calibre shunt"
+    id: pzem_shunt_range
+    address: 0x0003
+    value_type: U_WORD
+    entity_category: config
+    icon: "mdi:current-dc"
+    optionsmap:
+      "100 A": 0
+      "50 A": 1
+      "200 A": 2
+      "300 A": 3
+
+button:
+  - platform: template
+    name: "PV Calib. Zéro courant"
+    entity_category: config
+    icon: "mdi:numeric-0-box-outline"
+    on_press:
+      - number.set:
+          id: pv_cal_i_offset
+          value: !lambda |-
+            float raw = id(pzem_i_raw).state;
+            if (isnan(raw)) return id(pv_cal_i_offset).state;
+            return -raw * id(pv_cal_i_gain).state / 100.0f;
+      - logger.log: "PV Calib. : zéro courant appliqué"
+  - platform: template
+    name: "PV Calib. Appliquer réf. tension"
+    entity_category: config
+    icon: "mdi:check-underline"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(pv_cal_v_ref).state > 1.0f && id(pzem_v_raw).state > 1.0f;'
+          then:
+            - number.set:
+                id: pv_cal_v_gain
+                value: !lambda |-
+                  float g = (id(pv_cal_v_ref).state - id(pv_cal_v_offset).state)
+                            / id(pzem_v_raw).state * 100.0f;
+                  return std::min(120.0f, std::max(80.0f, g));
+            - logger.log: "PV Calib. : gain tension recalculé"
+          else:
+            - logger.log:
+                level: WARN
+                format: "PV Calib. : référence ou mesure tension trop faible (> 1 V requis)"
+  - platform: template
+    name: "PV Calib. Appliquer réf. courant"
+    entity_category: config
+    icon: "mdi:check-underline"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return id(pv_cal_i_ref).state > 0.5f && id(pzem_i_raw).state > 0.5f;'
+          then:
+            - number.set:
+                id: pv_cal_i_gain
+                value: !lambda |-
+                  float g = (id(pv_cal_i_ref).state - id(pv_cal_i_offset).state)
+                            / id(pzem_i_raw).state * 100.0f;
+                  return std::min(150.0f, std::max(50.0f, g));
+            - logger.log: "PV Calib. : gain courant recalculé"
+          else:
+            - logger.log:
+                level: WARN
+                format: "PV Calib. : référence ou mesure courant trop faible (> 0.5 A requis)"
+  - platform: template
+    name: "PV Calib. Réinitialiser"
+    entity_category: config
+    icon: "mdi:restore"
+    on_press:
+      - number.set: {id: pv_cal_v_gain, value: 100}
+      - number.set: {id: pv_cal_v_offset, value: 0}
+      - number.set: {id: pv_cal_i_gain, value: 100}
+      - number.set: {id: pv_cal_i_offset, value: 0}
+
+  # Remise à zéro du compteur d'énergie PV (offset + NVS + helper HA)
+  - platform: template
+    name: "PV Réinitialiser énergie"
+    entity_category: config
+    icon: "mdi:counter"
+    on_press:
+      - lambda: |-
+          float raw = id(pv_energy_raw).state;
+          id(pv_energy_offset) = isnan(raw) ? 0 : -raw;
+          id(pv_energy_restored) = true;
+          id(nvs_pv_energy) = 0;
+          global_preferences->sync();
+          id(pv_energy_total).update();
+      - homeassistant.action:
+          action: input_number.set_value
+          data:
+            entity_id: input_number.hem_jk_pv_energy_total
+            value: "0"
+
+sensor:
+  # --- Valeurs BRUTES du PZEM (diagnostic, avant calibration) ---
+  - platform: modbus_controller
+    modbus_controller_id: pzem017
+    name: "PZEM Tension brute"
+    id: pzem_v_raw
+    register_type: read
+    address: 0x0000
+    value_type: U_WORD
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    entity_category: diagnostic
+    filters:
+      - multiply: 0.01
+  - platform: modbus_controller
+    modbus_controller_id: pzem017
+    name: "PZEM Courant brut"
+    id: pzem_i_raw
+    register_type: read
+    address: 0x0001
+    value_type: U_WORD
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    entity_category: diagnostic
+    filters:
+      - multiply: 0.01
+    # Tension et courant arrivent dans la MÊME réponse Modbus (tension
+    # d'abord) : calcul calibré ici, sur un couple cohérent (même principe
+    # anti-désynchronisation que HEM_ESPHOME/MPPT2).
+    on_value:
+      then:
+        - lambda: |-
+            id(pzem_last_ms) = millis();
+            float vr = id(pzem_v_raw).state;
+            if (isnan(vr)) return;
+            float v = vr * id(pv_cal_v_gain).state / 100.0f + id(pv_cal_v_offset).state;
+            float i = x * id(pv_cal_i_gain).state / 100.0f + id(pv_cal_i_offset).state;
+            if (v < 0) v = 0;
+            if (i < 0) i = 0;   // le PZEM-017 ne mesure pas de courant négatif
+            id(pv_voltage).publish_state(v);
+            id(pv_current).publish_state(i);
+            id(pv_power).publish_state(v * i);
+  - platform: modbus_controller
+    modbus_controller_id: pzem017
+    name: "PZEM Puissance brute"
+    register_type: read
+    address: 0x0002
+    value_type: U_DWORD_R
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    filters:
+      - multiply: 0.1
+  - platform: modbus_controller
+    modbus_controller_id: pzem017
+    name: "PZEM Énergie interne"
+    register_type: read
+    address: 0x0004
+    value_type: U_DWORD_R
+    unit_of_measurement: Wh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    entity_category: diagnostic
+
+  # --- Valeurs CALIBRÉES (publiées par on_value de "PZEM Courant brut") ---
+  - platform: template
+    name: "PV Tension"
+    id: pv_voltage
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:solar-panel"
+  - platform: template
+    name: "PV Courant"
+    id: pv_current
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:solar-panel"
+  # Production solaire (>= 0) : capteur à choisir dans le tableau de bord
+  # Énergie de HA ("Puissance de production solaire").
+  - platform: template
+    name: "PV Puissance"
+    id: pv_power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:solar-power"
+
+  # Intégration depuis le boot (repart de 0, l'offset porte l'historique)
+  - platform: integration
+    name: "PV Énergie (session)"
+    id: pv_energy_raw
+    sensor: pv_power
+    time_unit: h
+    internal: true
+    accuracy_decimals: 2
+
+  # Import one-shot du helper HA (2e mémoire), fusion max avec la NVS
+  - platform: homeassistant
+    id: ha_pv_energy
+    entity_id: input_number.hem_jk_pv_energy_total
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            if (id(pv_energy_restored)) return;
+            if (!std::isfinite(x) || x < 0) return;
+            id(pv_energy_offset) = std::max(id(pv_energy_offset), x);
+            id(pv_energy_restored) = true;
+
+  # Énergie solaire produite cumulée (Wh) - tableau de bord Énergie de HA
+  - platform: template
+    name: "PV Énergie totale"
+    id: pv_energy_total
+    unit_of_measurement: Wh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: |-
+      float raw = id(pv_energy_raw).state;
+      if (isnan(raw)) raw = 0;
+      float total = id(pv_energy_offset) + raw;
+      return total < 0 ? 0 : total;
+
+binary_sensor:
+  - platform: template
+    name: "PZEM Connecté"
+    id: pzem_online
+    device_class: connectivity
+    lambda: |-
+      return id(pzem_last_ms) != 0 && (millis() - id(pzem_last_ms)) < 10000;
+
+# Toutes les 30 s : copie NVS (flash réelle limitée par preferences:
+# flash_write_interval) + miroir vers le helper HA une fois restauré.
+# Si le PZEM se tait, la production est forcée à 0 (pas de valeur figée
+# intégrée indéfiniment).
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          if (!id(pzem_online).state && !isnan(id(pv_power).state) && id(pv_power).state != 0) {
+            id(pv_power).publish_state(0);
+            id(pv_current).publish_state(0);
+          }
+  - interval: 30s
+    then:
+      - lambda: |-
+          float v = id(pv_energy_total).state;
+          if (std::isfinite(v)) id(nvs_pv_energy) = v;
+      - if:
+          condition:
+            lambda: 'return id(pv_energy_restored);'
+          then:
+            - homeassistant.action:
+                action: input_number.set_value
+                data:
+                  entity_id: input_number.hem_jk_pv_energy_total
+                  value: !lambda |-
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.1f", id(pv_energy_total).state);
+                    return std::string(buf);

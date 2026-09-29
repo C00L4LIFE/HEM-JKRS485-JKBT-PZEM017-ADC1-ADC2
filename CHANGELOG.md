@@ -1,0 +1,44 @@
+# Changelog
+
+Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) —
+versionnage : [SemVer](https://semver.org/lang/fr/) (`MAJEUR.MINEUR.CORRECTIF`).
+
+La version est définie par la substitution `project_version` de
+`home_energy_management.yaml` et recopiée dans `VERSION`. Chaque release est
+taguée `vX.Y.Z` dans git.
+
+## [Non publié]
+
+## [1.0.0] - 2026-09-29
+
+Première version, dérivée de HEM_ESPHOME (`8e44ecc`) et de jk-bms
+(`JK-BMS-48V15kWH.yaml`, `b0be6e3`).
+
+### Ajouté
+- **JK BMS en RS485, écoute seule** (`packages/jk_bms_rs485.yaml`) sur l'ancien
+  port eSmart3 (RX 16, DE/RE 4 forcé bas, pas de TX) via `jk_rs485_sniffer` /
+  `jk_rs485_bms` (txubelaxu, commit épinglé). Fournit la référence tension
+  batterie du système.
+- **JK BMS en Bluetooth pour le paramétrage** (`packages/jk_bms_ble_config.yaml`) :
+  interrupteur « JK BT Connexion », déconnecté au démarrage et pendant l'OTA,
+  déconnexion automatique réglable.
+- **Production solaire PZEM-017** côté panneaux (`packages/pzem017_solar.yaml`) :
+  UART2 RX 13 / TX 14 / DE 18, 9600 8N2 ; interface de calibration (calibre
+  shunt écrit dans le PZEM, gains/offsets, zéro, calibration sur référence),
+  énergie PV persistante (NVS + helper HA `input_number.hem_jk_pv_energy_total`).
+- **ADS1115 ADC1 (A0-A1) / ADC2 (A2-A3)** génériques avec calibration
+  (`packages/ads1115_adc.yaml`).
+- **Gestion de version** : `project_version`, `VERSION`, ce changelog, capteurs
+  « Version firmware » et « Date de compilation » (`packages/version.yaml`).
+
+### Modifié
+- `energy.yaml` : calculs basés sur le JK (au lieu du JBD / eSmart3) ; maison =
+  PV (PZEM-017) − puissance JK.
+- `system.yaml` : suppression du watchdog MPPT ; OTA coupe la liaison BLE JK.
+- Packages chargés en local (`!include`) : dépôt privé.
+
+### Supprimé
+- eSmart3 (composant, package, protection batterie qui pilotait sa consigne
+  de courant — plus d'actionneur).
+- Shunt MPPT2 et shunt onduleur (rôles retirés des voies ADS1115).
+- PZEM-004T (AC) et capteur « DC Load ».

@@ -1,0 +1,38 @@
+# =============================================================================
+# Gestion de version
+#
+# Source unique : la substitution `project_version` de home_energy_management
+# .yaml (recopiée dans le fichier VERSION pour les outils/scripts). Elle est :
+#   - déclarée dans `esphome: project:` (visible dans HA : "Firmware ...")
+#   - exposée en capteur texte "Version firmware"
+#   - accompagnée de la date de compilation et de la version ESPHome
+#
+# Procédure de release (SemVer MAJEUR.MINEUR.CORRECTIF) :
+#   1. project_version + VERSION + nouvelle section dans CHANGELOG.md
+#   2. git commit -m "release: vX.Y.Z"
+#   3. git tag -a vX.Y.Z -m "vX.Y.Z" && git push --follow-tags
+# =============================================================================
+
+text_sensor:
+  - platform: template
+    name: "Version firmware"
+    id: fw_version
+    icon: "mdi:tag-outline"
+    entity_category: diagnostic
+    update_interval: 1h
+    lambda: |-
+      return {"${project_version}"};
+
+  - platform: template
+    name: "Date de compilation"
+    icon: "mdi:calendar-clock"
+    entity_category: diagnostic
+    update_interval: 1h
+    lambda: |-
+      return {__DATE__ " " __TIME__};
+
+  - platform: version
+    name: "Version ESPHome"
+    hide_timestamp: true
+    entity_category: diagnostic
+

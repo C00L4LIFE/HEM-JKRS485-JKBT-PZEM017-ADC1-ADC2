@@ -1,0 +1,201 @@
+# =============================================================================
+# JK BMS via Bluetooth - PARAMÉTRAGE UNIQUEMENT, connexion à la demande
+#
+# Les MESURES du JK viennent du RS485 (packages/jk_bms_rs485.yaml). Le BLE ne
+# sert qu'à lire/écrire les réglages du BMS (numbers / switches / selects).
+#
+# Le JK n'accepte qu'UNE connexion Bluetooth à la fois : l'ESP reste donc
+# déconnecté par défaut, ce qui laisse l'app JK du téléphone libre.
+#   - "JK BT Connexion" (interrupteur) : ON = l'ESP se connecte au JK,
+#     OFF = déconnexion. Forcé à OFF au démarrage (voir on_boot du fichier
+#     principal) et pendant une mise à jour OTA.
+#   - "JK BT Déconnexion auto" : durée max de connexion (min), 0 = jamais.
+#     Évite d'oublier la liaison ouverte (et de bloquer l'app téléphone).
+#   - Après connexion, attendre ~10 s que les réglages soient relus avant de
+#     modifier une valeur (bouton "JK BT Relire réglages" si besoin).
+#
+# Aucun capteur de mesure n'est déclaré ici (pas de doublon avec le RS485) ;
+# seuls les versions matériel/logiciel (introuvables en écoute RS485) le sont.
+# =============================================================================
+
+ble_client:
+  - id: jk_ble_client
+    mac_address: !secret jk_bms_mac_address
+
+jk_bms_ble:
+  - id: jk_ble
+    ble_client_id: jk_ble_client
+    protocol_version: ${jk_protocol_version}
+    throttle: 5s
+
+globals:
+  - id: jk_ble_on_since
+    type: uint32_t
+    initial_value: '0'
+
+switch:
+  # Le "bouton de connexion" Bluetooth du JK
+  - platform: ble_client
+    ble_client_id: jk_ble_client
+    name: "JK BT Connexion"
+    id: jk_ble_connect
+    icon: "mdi:bluetooth-connect"
+    on_turn_on:
+      - lambda: 'id(jk_ble_on_since) = millis();'
+      - logger.log: "JK BT : connexion demandée (paramétrage)"
+    on_turn_off:
+      - logger.log: "JK BT : déconnecté"
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jk_ble
+    charging:
+      name: "JK Param MOS Charge"
+    discharging:
+      name: "JK Param MOS Décharge"
+    balancer:
+      name: "JK Param Équilibreur"
+    emergency:
+      name: "JK Param Urgence"
+    heating:
+      name: "JK Param Chauffage"
+    disable_temperature_sensors:
+      name: "JK Param Désactiver sondes température"
+    display_always_on:
+      name: "JK Param Écran toujours allumé"
+    smart_sleep:
+      name: "JK Param Veille intelligente"
+    disable_pcl_module:
+      name: "JK Param Désactiver module PCL"
+    timed_stored_data:
+      name: "JK Param Enregistrement périodique"
+    charging_float_mode:
+      name: "JK Param Mode floating"
+
+number:
+  - platform: template
+    name: "JK BT Déconnexion auto"
+    id: jk_ble_timeout
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 240
+    step: 1
+    initial_value: 15
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:timer-off-outline"
+
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jk_ble
+    balance_trigger_voltage:
+      name: "JK Param Delta déclenchement équilibrage"
+    cell_count:
+      name: "JK Param Nombre de cellules"
+    total_battery_capacity:
+      name: "JK Param Capacité batterie"
+    cell_voltage_overvoltage_protection:
+      name: "JK Param Cellule OVP"
+    cell_voltage_overvoltage_recovery:
+      name: "JK Param Cellule OVP récupération"
+    cell_voltage_undervoltage_protection:
+      name: "JK Param Cellule UVP"
+    cell_voltage_undervoltage_recovery:
+      name: "JK Param Cellule UVP récupération"
+    balancing_start_voltage:
+      name: "JK Param Tension début équilibrage"
+    voltage_calibration:
+      name: "JK Param Calibration tension"
+    current_calibration:
+      name: "JK Param Calibration courant"
+    power_off_voltage:
+      name: "JK Param Tension arrêt"
+    max_balance_current:
+      name: "JK Param Courant équilibrage max"
+    max_charge_current:
+      name: "JK Param Courant charge max"
+    max_discharge_current:
+      name: "JK Param Courant décharge max"
+    smart_sleep_voltage:
+      name: "JK Param Tension veille"
+    cell_soc100_voltage:
+      name: "JK Param Tension cellule SoC 100%"
+    cell_soc0_voltage:
+      name: "JK Param Tension cellule SoC 0%"
+    cell_request_charge_voltage:
+      name: "JK Param Tension charge demandée"
+    cell_request_float_voltage:
+      name: "JK Param Tension floating demandée"
+    re_bulk_soc:
+      name: "JK Param SoC re-bulk"
+    charge_overcurrent_protection_delay:
+      name: "JK Param Délai surcourant charge"
+    discharge_overcurrent_protection_delay:
+      name: "JK Param Délai surcourant décharge"
+    charge_overtemperature_protection:
+      name: "JK Param Surchauffe charge"
+    charge_overtemperature_protection_recovery:
+      name: "JK Param Surchauffe charge récupération"
+    discharge_overtemperature_protection:
+      name: "JK Param Surchauffe décharge"
+    discharge_overtemperature_protection_recovery:
+      name: "JK Param Surchauffe décharge récupération"
+    charge_undertemperature_protection:
+      name: "JK Param Sous-température charge"
+    charge_undertemperature_protection_recovery:
+      name: "JK Param Sous-température charge récupération"
+    mosfet_overtemperature_protection:
+      name: "JK Param Surchauffe MOS"
+    mosfet_overtemperature_protection_recovery:
+      name: "JK Param Surchauffe MOS récupération"
+    heating_start_temperature:
+      name: "JK Param Chauffage début"
+    heating_stop_temperature:
+      name: "JK Param Chauffage fin"
+
+select:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jk_ble
+    uart1_protocol:
+      name: "JK Param Protocole UART1"
+    uart2_protocol:
+      name: "JK Param Protocole UART2"
+    can_protocol:
+      name: "JK Param Protocole CAN"
+
+button:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jk_ble
+    retrieve_settings:
+      name: "JK BT Relire réglages"
+    retrieve_device_info:
+      name: "JK BT Relire infos appareil"
+
+binary_sensor:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jk_ble
+    online_status:
+      name: "JK BT Liaison active"
+
+text_sensor:
+  - platform: jk_bms_ble
+    jk_bms_ble_id: jk_ble
+    software_version:
+      name: "JK Version logicielle"
+    hardware_version:
+      name: "JK Version matérielle"
+
+# Déconnexion automatique après "JK BT Déconnexion auto" minutes.
+interval:
+  - interval: 30s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              if (!id(jk_ble_connect).state) return false;
+              float t = id(jk_ble_timeout).state;
+              if (isnan(t) || t <= 0) return false;
+              return (millis() - id(jk_ble_on_since)) >= (uint32_t) (t * 60000.0f);
+          then:
+            - logger.log: "JK BT : délai atteint, déconnexion automatique"
+            - switch.turn_off: jk_ble_connect

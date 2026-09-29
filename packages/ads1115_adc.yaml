@@ -1,0 +1,308 @@
+# =============================================================================
+# ADS1115 - 2 voies différentielles génériques ADC1 (A0-A1) et ADC2 (A2-A3)
+#
+# Les anciens usages sont SUPPRIMÉS : plus de "MPPT2" (production solaire,
+# désormais fournie par le PZEM-017) ni de "Onduleur" (pas de capteur DC Load
+# pour le moment). Les deux voies restent disponibles, prévues pour un shunt
+# (courant) et entièrement calibrables depuis HA / le serveur web :
+#
+#   courant = sens x (tension_mesurée / mV_nominal x A_nominal) x gain/100 + offset
+#
+#   - "ADCx Shunt A nominal" / "ADCx Shunt mV nominal" : caractéristique du
+#     shunt (ex. 100 A / 75 mV). Défaut 100 A / 75 mV.
+#   - "ADCx Calib. Gain" (%) et "ADCx Calib. Offset" (A), persistants.
+#   - bouton "ADCx Calib. Zéro" : courant nul dans le shunt -> offset = -lecture.
+#   - "ADCx Calib. Référence" + bouton "ADCx Calib. Appliquer réf." : gain
+#     recalculé d'après une pince ampèremétrique.
+#   - interrupteur "ADCx Inverser sens" : remplace l'ancien multiply négatif.
+#
+# Aucune puissance / énergie n'est calculée ici (volontairement : aucun rôle
+# attribué pour l'instant). Gain ADS ±0.512 V (≈ 680 A équivalent sur 75 mV).
+# Adresse 0x48 (ADDR à GND) ; le scan I2C au boot confirme l'adresse.
+# =============================================================================
+
+ads1115:
+  - address: 0x48
+    id: ads1115_hub
+
+number:
+  - platform: template
+    name: "ADC1 Shunt A nominal"
+    id: adc1_shunt_a
+    unit_of_measurement: A
+    min_value: 1
+    max_value: 2000
+    step: 1
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:current-dc"
+  - platform: template
+    name: "ADC1 Shunt mV nominal"
+    id: adc1_shunt_mv
+    unit_of_measurement: mV
+    min_value: 10
+    max_value: 500
+    step: 1
+    initial_value: 75
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:current-dc"
+  - platform: template
+    name: "ADC1 Calib. Gain"
+    id: adc1_gain
+    unit_of_measurement: "%"
+    min_value: 50
+    max_value: 150
+    step: 0.01
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "ADC1 Calib. Offset"
+    id: adc1_offset
+    unit_of_measurement: A
+    min_value: -20
+    max_value: 20
+    step: 0.001
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "ADC1 Calib. Référence"
+    id: adc1_ref
+    unit_of_measurement: A
+    min_value: -2000
+    max_value: 2000
+    step: 0.01
+    initial_value: 0
+    optimistic: true
+    entity_category: config
+    mode: box
+    icon: "mdi:ruler"
+
+  - platform: template
+    name: "ADC2 Shunt A nominal"
+    id: adc2_shunt_a
+    unit_of_measurement: A
+    min_value: 1
+    max_value: 2000
+    step: 1
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:current-dc"
+  - platform: template
+    name: "ADC2 Shunt mV nominal"
+    id: adc2_shunt_mv
+    unit_of_measurement: mV
+    min_value: 10
+    max_value: 500
+    step: 1
+    initial_value: 75
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:current-dc"
+  - platform: template
+    name: "ADC2 Calib. Gain"
+    id: adc2_gain
+    unit_of_measurement: "%"
+    min_value: 50
+    max_value: 150
+    step: 0.01
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "ADC2 Calib. Offset"
+    id: adc2_offset
+    unit_of_measurement: A
+    min_value: -20
+    max_value: 20
+    step: 0.001
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:tune-vertical"
+  - platform: template
+    name: "ADC2 Calib. Référence"
+    id: adc2_ref
+    unit_of_measurement: A
+    min_value: -2000
+    max_value: 2000
+    step: 0.01
+    initial_value: 0
+    optimistic: true
+    entity_category: config
+    mode: box
+    icon: "mdi:ruler"
+
+switch:
+  - platform: template
+    name: "ADC1 Inverser sens"
+    id: adc1_invert
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    icon: "mdi:swap-vertical"
+
+  - platform: template
+    name: "ADC2 Inverser sens"
+    id: adc2_invert
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    icon: "mdi:swap-vertical"
+
+button:
+  - platform: template
+    name: "ADC1 Calib. Zéro"
+    entity_category: config
+    icon: "mdi:numeric-0-box-outline"
+    on_press:
+      - number.set:
+          id: adc1_offset
+          value: !lambda |-
+            float i = id(adc1_uncal).state;
+            if (isnan(i)) return id(adc1_offset).state;
+            return -i * id(adc1_gain).state / 100.0f;
+  - platform: template
+    name: "ADC1 Calib. Appliquer réf."
+    entity_category: config
+    icon: "mdi:check-underline"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return fabsf(id(adc1_ref).state) > 0.5f && fabsf(id(adc1_uncal).state) > 0.5f;'
+          then:
+            - number.set:
+                id: adc1_gain
+                value: !lambda |-
+                  float g = (id(adc1_ref).state - id(adc1_offset).state)
+                            / id(adc1_uncal).state * 100.0f;
+                  return std::min(150.0f, std::max(50.0f, g));
+          else:
+            - logger.log:
+                level: WARN
+                format: "ADC1 Calib. : courant de référence/mesuré trop faible (> 0.5 A requis)"
+
+  - platform: template
+    name: "ADC2 Calib. Zéro"
+    entity_category: config
+    icon: "mdi:numeric-0-box-outline"
+    on_press:
+      - number.set:
+          id: adc2_offset
+          value: !lambda |-
+            float i = id(adc2_uncal).state;
+            if (isnan(i)) return id(adc2_offset).state;
+            return -i * id(adc2_gain).state / 100.0f;
+  - platform: template
+    name: "ADC2 Calib. Appliquer réf."
+    entity_category: config
+    icon: "mdi:check-underline"
+    on_press:
+      - if:
+          condition:
+            lambda: 'return fabsf(id(adc2_ref).state) > 0.5f && fabsf(id(adc2_uncal).state) > 0.5f;'
+          then:
+            - number.set:
+                id: adc2_gain
+                value: !lambda |-
+                  float g = (id(adc2_ref).state - id(adc2_offset).state)
+                            / id(adc2_uncal).state * 100.0f;
+                  return std::min(150.0f, std::max(50.0f, g));
+          else:
+            - logger.log:
+                level: WARN
+                format: "ADC2 Calib. : courant de référence/mesuré trop faible (> 0.5 A requis)"
+
+sensor:
+  - platform: ads1115
+    ads1115_id: ads1115_hub
+    multiplexer: 'A0_A1'
+    gain: 0.512
+    name: "ADC1 Tension brute"
+    id: adc1_raw
+    unit_of_measurement: mV
+    accuracy_decimals: 3
+    update_interval: 1s
+    entity_category: diagnostic
+    filters:
+      - multiply: 1000
+    on_value:
+      then:
+        - lambda: |-
+            float mv_nom = id(adc1_shunt_mv).state;
+            if (isnan(mv_nom) || mv_nom <= 0) return;
+            float i = x / mv_nom * id(adc1_shunt_a).state;
+            if (id(adc1_invert).state) i = -i;
+            id(adc1_uncal).publish_state(i);
+            id(adc1_current).publish_state(i * id(adc1_gain).state / 100.0f + id(adc1_offset).state);
+  # Courant avant gain/offset (base des boutons de calibration)
+  - platform: template
+    id: adc1_uncal
+    internal: true
+    unit_of_measurement: A
+  - platform: template
+    name: "ADC1 Courant"
+    id: adc1_current
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:current-dc"
+
+  - platform: ads1115
+    ads1115_id: ads1115_hub
+    multiplexer: 'A2_A3'
+    gain: 0.512
+    name: "ADC2 Tension brute"
+    id: adc2_raw
+    unit_of_measurement: mV
+    accuracy_decimals: 3
+    update_interval: 1s
+    entity_category: diagnostic
+    filters:
+      - multiply: 1000
+    on_value:
+      then:
+        - lambda: |-
+            float mv_nom = id(adc2_shunt_mv).state;
+            if (isnan(mv_nom) || mv_nom <= 0) return;
+            float i = x / mv_nom * id(adc2_shunt_a).state;
+            if (id(adc2_invert).state) i = -i;
+            id(adc2_uncal).publish_state(i);
+            id(adc2_current).publish_state(i * id(adc2_gain).state / 100.0f + id(adc2_offset).state);
+  # Courant avant gain/offset (base des boutons de calibration)
+  - platform: template
+    id: adc2_uncal
+    internal: true
+    unit_of_measurement: A
+  - platform: template
+    name: "ADC2 Courant"
+    id: adc2_current
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:current-dc"

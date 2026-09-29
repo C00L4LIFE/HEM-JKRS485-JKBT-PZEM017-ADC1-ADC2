@@ -1,0 +1,121 @@
+# =============================================================================
+# Home Energy Management - HEM-JKRS485-JKBT-PZEM017-ADC1-ADC2
+# Évolution de HEM_ESPHOME (https://github.com/C00L4LIFE/HEM_ESPHOME) :
+#   - eSmart3 retiré : son port RS485 (16/17/4) est réattribué au JK BMS,
+#     en ÉCOUTE SEULE (sniffer passif, driver RS485 forcé désactivé)
+#   - JK BMS en Bluetooth : uniquement pour PARAMÉTRER, connexion sur demande
+#     (interrupteur "JK BT Connexion", déconnexion automatique)
+#   - Référence tension batterie : fournie par le JK (RS485), plus aucune autre
+#   - Production solaire : PZEM-017 côté PANNEAUX (avant régulateur), avec
+#     interface de calibration (calibre shunt + corrections)
+#   - ADS1115 : 2 voies génériques ADC1 (A0-A1) / ADC2 (A2-A3) avec
+#     calibration ; l'ancien shunt MPPT2 et le shunt onduleur sont supprimés
+#   - Pas de capteur "DC Load" pour le moment
+#   - JBD BMS en BLE : inchangé
+# =============================================================================
+# Matériel :
+#   - ESP32 DevKit (esp32dev)
+#   - UART0 : logger (USB)
+#   - UART1 : JK BMS RS485 écoute seule  RX 16 (TX 17 non utilisé) / DE-RE 4 forcé BAS
+#   - UART2 : PZEM-017 Modbus RTU        RX 13 / TX 14 / DE-RE 18 (9600 8N2, adr. 1)
+#   - JBD BMS via BLE (client permanent) + JK BMS via BLE (client à la demande)
+#   - ADS1115 sur I2C (SDA 21 / SCL 22), adresse 0x48
+#   - 4 relais (25/26/27/32, actifs à l'état bas), 4 entrées (33/34/35/36)
+# =============================================================================
+
+substitutions:
+  name: hem-jk
+  friendly_name: "HEM JK"
+
+  # --- Gestion de version (voir VERSION, CHANGELOG.md et packages/version.yaml)
+  # Toujours incrémenter ici ET dans le fichier VERSION avant un tag git.
+  project_version: "1.0.0"
+
+  # --- Pins ---
+  # JK BMS RS485 (ancien port eSmart3, même transceiver MAX485)
+  jk_rx_pin: "16"
+  jk_de_pin: "4"          # DE/RE du MAX485 : forcé BAS en permanence = réception seule
+  # PZEM-017 (ancien bus PZEM-004T, + transceiver RS485 à ajouter)
+  pzem_rx_pin: "13"
+  pzem_tx_pin: "14"
+  pzem_de_pin: "18"       # DE/RE du MAX485 PZEM (retirer flow_control_pin si module auto-direction)
+  i2c_sda_pin: "21"
+  i2c_scl_pin: "22"
+  relay_1_pin: "25"
+  relay_2_pin: "26"
+  relay_3_pin: "27"
+  relay_4_pin: "32"
+  input_1_pin: "33"
+  input_2_pin: "34"
+  input_3_pin: "35"
+  input_4_pin: "36"
+  status_led_pin: "2"
+
+  # JK BMS v19 / JK-PB : protocole JK02_32S (RS485 et BLE)
+  jk_protocol_version: JK02_32S
+  # Adresse RS485 du JK (DIP switches) : 0 = maître, c'est lui qui publie
+  # ses trames sur le bus - condition nécessaire à l'écoute seule.
+  jk_rs485_address: "0"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  comment: "HEM - JK RS485 (écoute) + JK BT (paramétrage) + PZEM-017 PV + ADS1115"
+  project:
+    name: "c00l4life.hem-jk"
+    version: ${project_version}
+  on_boot:
+    priority: -100
+    then:
+      # Restauration immédiate du compteur d'énergie PV depuis la NVS
+      # (même schéma offset + NVS + helper HA que HEM_ESPHOME / jk-bms).
+      - lambda: |-
+          id(pv_energy_offset) = id(nvs_pv_energy);
+      # JK Bluetooth déconnecté par défaut (paramétrage à la demande, app
+      # téléphone libre) : voir packages/jk_bms_ble_config.yaml.
+      - switch.turn_off: jk_ble_connect
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Composants externes :
+#   - jk_rs485_sniffer / jk_rs485_bms (txubelaxu) : écoute passive du bus
+#     RS485 interne des JK-PB. Épinglé sur un commit précis (dépôt tiers,
+#     on ne veut pas qu'un push amont change le firmware à notre insu).
+#   - jk_bms_ble (fork C00L4LIFE de syssi) : paramétrage par Bluetooth.
+#   - jbd_bms_ble (syssi) : BMS JBD en BLE, inchangé.
+external_components:
+  - source: github://txubelaxu/esphome-jk-bms@10ce72518fcd543dd5e5f62a5b36fc895c26af9a
+    components: [jk_rs485_sniffer, jk_rs485_bms]
+  - source: github://C00L4LIFE/esphome-jk-bms@main
+    components: [jk_bms_ble]
+    refresh: 1d
+  - source: github://syssi/esphome-jbd-bms@main
+    components: [jbd_bms_ble]
+    refresh: 1d
+
+# Packages LOCAUX (!include) : ce dépôt est privé, ESPHome ne peut pas
+# télécharger des packages depuis un dépôt GitHub privé sans jeton. Copier
+# le dossier complet (ce fichier + packages/ + secrets.yaml) pour compiler.
+packages:
+  version: !include packages/version.yaml
+  wifi: !include packages/wifi.yaml
+  api: !include packages/api.yaml
+  system: !include packages/system.yaml
+  gpio: !include packages/gpio.yaml
+  jk_bms_rs485: !include packages/jk_bms_rs485.yaml
+  jk_bms_ble_config: !include packages/jk_bms_ble_config.yaml
+  jbd_bms_ble: !include packages/jbd_bms_ble.yaml
+  pzem017_solar: !include packages/pzem017_solar.yaml
+  ads1115_adc: !include packages/ads1115_adc.yaml
+  energy: !include packages/energy.yaml
+
+logger:
+  level: INFO
+  # ESP32 = 3 UART matériels : UART0 (logger) + JK RS485 + PZEM-017.
+  logs:
+    jk_rs485_sniffer: INFO
+    esp32_ble_tracker: INFO
+    esp32_ble_client: INFO

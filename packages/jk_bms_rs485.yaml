@@ -1,0 +1,301 @@
+# =============================================================================
+# JK BMS (JK-PB / v19, protocole JK02_32S) sur RS485 - ÉCOUTE SEULE
+#
+# Réutilise le port de l'ancien eSmart3 (même MAX485) : RX 16, DE/RE 4.
+# Composant txubelaxu/esphome-jk-bms (jk_rs485_sniffer + jk_rs485_bms) :
+# décode les trames 0x55AA EB90 (types 01 = réglages, 02 = cellules/état)
+# que le JK publie sur son bus RS485 interne (port "parallèle", RJ45).
+#
+# Écoute seule garantie à DEUX niveaux :
+#   1. Matériel : DE/RE (GPIO4) forcé BAS en permanence -> le MAX485 est en
+#      réception, son driver est désactivé : aucun octet ne peut sortir sur A/B.
+#   2. Logiciel : UART déclaré sans tx_pin et sniffer sans talk_pin. Si le
+#      composant décide de jouer les "pseudo-maîtres" (il le fait quand il
+#      n'entend aucun maître), ses écritures ne sortent nulle part.
+#
+# Pré-requis côté BMS (à régler une fois avec l'app JK via Bluetooth) :
+#   - DIP switches à 0x00 (tous OFF) : le JK est MAÎTRE et publie lui-même
+#     ses trames sur le bus. En esclave (adresse 1-15), il attendrait qu'un
+#     maître l'interroge : rien à écouter.
+#   - Brancher le MAX485 sur l'un des 2 RJ45 "RS485" (bus parallèle), 115200 bauds :
+#     broches 1 = B, 2 = A, 3 = GND (ou 9/10/11 sur le second connecteur).
+#   - Limite connue en écoute seule : la trame "infos appareil" (type 03 :
+#     modèle, versions hw/sw, n° de série) n'est jamais émise par le maître ;
+#     ces infos restent lisibles via le Bluetooth (packages/jk_bms_ble_config.yaml).
+#
+# C'est CE package qui fournit la référence tension batterie du système
+# (jk_voltage) : plus aucune autre mesure de tension batterie n'est utilisée.
+# =============================================================================
+
+uart:
+  - id: uart_jk
+    rx_pin: ${jk_rx_pin}
+    # Pas de tx_pin : écoute seule (voir en-tête).
+    baud_rate: 115200
+    rx_buffer_size: 1024
+
+# DE/RE du MAX485 maintenu à 0 = réception uniquement.
+switch:
+  - platform: gpio
+    id: jk_rs485_de
+    pin: ${jk_de_pin}
+    restore_mode: ALWAYS_OFF
+    internal: true
+  # Déclaré SANS aucune entité : jk_rs485_bms.h inclut toujours ses
+  # sous-plateformes switch/number, qui ne sont compilées que si la plateforme
+  # est déclarée. Aucune commande n'est exposée (écoute seule).
+  - platform: jk_rs485_bms
+    jk_rs485_bms_id: jk_bms
+
+number:
+  - platform: jk_rs485_bms
+    jk_rs485_bms_id: jk_bms
+
+jk_rs485_sniffer:
+  - id: jk_sniffer
+    protocol_version: ${jk_protocol_version}
+    uart_id: uart_jk
+    rx_timeout: 50ms
+
+jk_rs485_bms:
+  - id: jk_bms
+    rs485_address: ${jk_rs485_address}
+    jk_rs485_sniffer_id: jk_sniffer
+    update_interval: 5s
+
+binary_sensor:
+  - platform: jk_rs485_bms
+    jk_rs485_bms_id: jk_bms
+    status_online:
+      name: "JK Connecté (RS485)"
+      id: jk_online
+    status_balancing:
+      name: "JK Équilibrage"
+    status_precharging:
+      name: "JK Pré-charge"
+    status_charging:
+      name: "JK MOS Charge"
+    status_discharging:
+      name: "JK MOS Décharge"
+    status_heating:
+      name: "JK Chauffage"
+    alarm_wireres:
+      name: "JK Alarme résistance fil"
+    alarm_mosotp:
+      name: "JK Alarme surchauffe MOS"
+    alarm_cellquantity:
+      name: "JK Alarme nombre cellules"
+    alarm_cursensorerr:
+      name: "JK Alarme capteur courant"
+    alarm_cellovp:
+      name: "JK Alarme surtension cellule"
+    alarm_batovp:
+      name: "JK Alarme surtension pack"
+    alarm_chocp:
+      name: "JK Alarme surcourant charge"
+    alarm_chscp:
+      name: "JK Alarme court-circuit charge"
+    alarm_chotp:
+      name: "JK Alarme surchauffe charge"
+    alarm_chutp:
+      name: "JK Alarme sous-température charge"
+    alarm_cpuauxcommuerr:
+      name: "JK Alarme communication CPU aux."
+    alarm_celluvp:
+      name: "JK Alarme sous-tension cellule"
+    alarm_batuvp:
+      name: "JK Alarme sous-tension pack"
+    alarm_dchocp:
+      name: "JK Alarme surcourant décharge"
+    alarm_dchscp:
+      name: "JK Alarme court-circuit décharge"
+    alarm_dchotp:
+      name: "JK Alarme surchauffe décharge"
+    alarm_chargemos:
+      name: "JK Alarme MOS charge"
+    alarm_dischargemos:
+      name: "JK Alarme MOS décharge"
+    alarm_dischargeonfailed:
+      name: "JK Alarme échec mise en décharge"
+    alarm_batteryovertemp:
+      name: "JK Alarme surchauffe batterie"
+    alarm_temperaturesensoranomaly:
+      name: "JK Alarme capteur température"
+
+sensor:
+  - platform: jk_rs485_bms
+    jk_rs485_bms_id: jk_bms
+    # --- Référence batterie du système ---
+    battery_voltage:
+      name: "JK Tension"
+      id: jk_voltage
+    battery_current:
+      name: "JK Courant"
+      id: jk_current
+    battery_power:
+      name: "JK Puissance"
+      id: jk_power
+    battery_power_charging:
+      name: "JK Puissance de charge"
+      id: jk_power_charging
+    battery_power_discharging:
+      name: "JK Puissance de décharge"
+      id: jk_power_discharging
+    battery_capacity_state_of_charge:
+      name: "JK SoC"
+      id: jk_soc
+    battery_capacity_remaining:
+      name: "JK Capacité restante"
+      id: jk_capacity_remaining
+    charging_cycles:
+      name: "JK Cycles"
+    battery_capacity_total_charging_cycle:
+      name: "JK Capacité cumulée cycles"
+    battery_total_runtime:
+      name: "JK Durée de fonctionnement"
+      entity_category: diagnostic
+    balancing_current:
+      name: "JK Courant d'équilibrage"
+    balancing_direction:
+      name: "JK Sens d'équilibrage"
+      entity_category: diagnostic
+    errors_bitmask:
+      name: "JK Bitmask défauts"
+      entity_category: diagnostic
+    cell_count_real:
+      name: "JK Nombre de cellules"
+    battery_total_alarms_count:
+      name: "JK Nombre d'alarmes"
+    battery_total_alarms_active:
+      name: "JK Alarmes actives"
+    # --- Cellules ---
+    cell_voltage_min:
+      name: "JK Cellule min"
+      id: jk_cell_min
+    cell_voltage_max:
+      name: "JK Cellule max"
+      id: jk_cell_max
+    cell_voltage_min_cell_number:
+      name: "JK N° cellule min"
+    cell_voltage_max_cell_number:
+      name: "JK N° cellule max"
+    cell_delta_voltage:
+      name: "JK Delta cellules"
+      id: jk_cell_delta
+    cell_average_voltage:
+      name: "JK Cellule moyenne"
+    cell_resistance_min:
+      name: "JK Résistance fil min"
+      entity_category: diagnostic
+    cell_resistance_max:
+      name: "JK Résistance fil max"
+      entity_category: diagnostic
+    cell_voltage_01:
+      name: "JK Cellule 01"
+    cell_voltage_02:
+      name: "JK Cellule 02"
+    cell_voltage_03:
+      name: "JK Cellule 03"
+    cell_voltage_04:
+      name: "JK Cellule 04"
+    cell_voltage_05:
+      name: "JK Cellule 05"
+    cell_voltage_06:
+      name: "JK Cellule 06"
+    cell_voltage_07:
+      name: "JK Cellule 07"
+    cell_voltage_08:
+      name: "JK Cellule 08"
+    cell_voltage_09:
+      name: "JK Cellule 09"
+    cell_voltage_10:
+      name: "JK Cellule 10"
+    cell_voltage_11:
+      name: "JK Cellule 11"
+    cell_voltage_12:
+      name: "JK Cellule 12"
+    cell_voltage_13:
+      name: "JK Cellule 13"
+    cell_voltage_14:
+      name: "JK Cellule 14"
+    cell_voltage_15:
+      name: "JK Cellule 15"
+    cell_voltage_16:
+      name: "JK Cellule 16"
+    cell_resistance_01:
+      name: "JK Résistance fil 01"
+      entity_category: diagnostic
+    cell_resistance_02:
+      name: "JK Résistance fil 02"
+      entity_category: diagnostic
+    cell_resistance_03:
+      name: "JK Résistance fil 03"
+      entity_category: diagnostic
+    cell_resistance_04:
+      name: "JK Résistance fil 04"
+      entity_category: diagnostic
+    cell_resistance_05:
+      name: "JK Résistance fil 05"
+      entity_category: diagnostic
+    cell_resistance_06:
+      name: "JK Résistance fil 06"
+      entity_category: diagnostic
+    cell_resistance_07:
+      name: "JK Résistance fil 07"
+      entity_category: diagnostic
+    cell_resistance_08:
+      name: "JK Résistance fil 08"
+      entity_category: diagnostic
+    cell_resistance_09:
+      name: "JK Résistance fil 09"
+      entity_category: diagnostic
+    cell_resistance_10:
+      name: "JK Résistance fil 10"
+      entity_category: diagnostic
+    cell_resistance_11:
+      name: "JK Résistance fil 11"
+      entity_category: diagnostic
+    cell_resistance_12:
+      name: "JK Résistance fil 12"
+      entity_category: diagnostic
+    cell_resistance_13:
+      name: "JK Résistance fil 13"
+      entity_category: diagnostic
+    cell_resistance_14:
+      name: "JK Résistance fil 14"
+      entity_category: diagnostic
+    cell_resistance_15:
+      name: "JK Résistance fil 15"
+      entity_category: diagnostic
+    cell_resistance_16:
+      name: "JK Résistance fil 16"
+      entity_category: diagnostic
+    # --- Températures ---
+    temperature_sensor_1:
+      name: "JK Température B+"
+    temperature_sensor_2:
+      name: "JK Température B-"
+    temperature_sensor_3:
+      name: "JK Température barre centrale"
+    temperature_sensor_4:
+      name: "JK Température P-"
+    temperature_sensor_5:
+      name: "JK Température capteur 5"
+    temperature_powertube:
+      name: "JK Température MOS"
+
+text_sensor:
+  - platform: jk_rs485_bms
+    jk_rs485_bms_id: jk_bms
+    errors:
+      name: "JK Défauts"
+    operation_status:
+      name: "JK État de fonctionnement"
+    battery_type:
+      name: "JK Type de batterie"
+    total_runtime_formatted:
+      name: "JK Durée de fonctionnement (texte)"
+      entity_category: diagnostic
+    network_nodes_available:
+      name: "JK Nœuds RS485 vus"
+      entity_category: diagnostic
