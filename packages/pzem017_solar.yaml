@@ -14,11 +14,14 @@
 #   entrée 0x0000 tension 0.01 V | 0x0001 courant 0.01 A
 #          0x0002-03 puissance 0.1 W | 0x0004-05 énergie 1 Wh (mot faible d'abord)
 #   holding 0x0003 calibre shunt : 0 = 100 A, 1 = 50 A, 2 = 200 A, 3 = 300 A
+#   (pas de 150 A : voir "PZEM Shunt installé" ci-dessous)
 #
 # INTERFACE DE CALIBRATION (entités "PV Calib. ..." + select "PZEM Calibre shunt") :
 #   valeur calibrée = valeur brute x gain/100 + offset
-#   1. Choisir le calibre du shunt réellement installé ("PZEM Calibre shunt",
-#      écrit dans le PZEM - l'ancien réglage est perdu/inconnu).
+#   1. Choisir le shunt réellement installé ("PZEM Shunt installé" : 50, 100,
+#      150, 200 ou 300 A, tous en 75 mV). Le PZEM-017 ne connaît que 50/100/
+#      200/300 A (registre 0x0003) : pour 150 A il est réglé sur 100 A et la
+#      lecture est multipliée par 1.5 côté ESP (même 75 mV -> 1.5x le courant).
 #   2. Zéro courant : de nuit (panneaux sans production), bouton
 #      "PV Calib. Zéro courant" -> offset courant = -lecture actuelle.
 #   3. Gain tension : mesurer la tension panneaux au multimètre, la saisir dans
@@ -152,14 +155,42 @@ number:
     icon: "mdi:ruler"
 
 select:
-  # Calibre du shunt, écrit directement dans le PZEM-017 (registre 0x0003)
+  # Shunt réellement installé (75 mV). C'est CE sélecteur qu'on règle : il
+  # écrit le calibre correspondant dans le PZEM et, pour 150 A (absent du
+  # PZEM-017), règle le PZEM sur 100 A et applique x1.5 sur le courant.
+  - platform: template
+    name: "PZEM Shunt installé"
+    id: pzem_shunt_installed
+    optimistic: true
+    restore_value: true
+    initial_option: "100 A"
+    entity_category: config
+    icon: "mdi:current-dc"
+    options:
+      - "50 A"
+      - "100 A"
+      - "150 A"
+      - "200 A"
+      - "300 A"
+    set_action:
+      - select.set:
+          id: pzem_shunt_range
+          option: !lambda |-
+            if (x == "150 A") return std::string("100 A");
+            return x;
+      - logger.log:
+          format: "PZEM : shunt %s -> registre calibre mis à jour"
+          args: ['x.c_str()']
+
+  # Calibre réellement programmé dans le PZEM-017 (registre 0x0003), relu
+  # du PZEM. Piloté par "PZEM Shunt installé" : ne pas le régler à la main.
   - platform: modbus_controller
     modbus_controller_id: pzem017
-    name: "PZEM Calibre shunt"
+    name: "PZEM Calibre (registre PZEM)"
     id: pzem_shunt_range
     address: 0x0003
     value_type: U_WORD
-    entity_category: config
+    entity_category: diagnostic
     icon: "mdi:current-dc"
     optionsmap:
       "100 A": 0
@@ -178,7 +209,8 @@ button:
           value: !lambda |-
             float raw = id(pzem_i_raw).state;
             if (isnan(raw)) return id(pv_cal_i_offset).state;
-            return -raw * id(pv_cal_i_gain).state / 100.0f;
+            auto sh = id(pzem_shunt_installed).active_index(); float sc = (sh.has_value() && *sh == 2) ? 1.5f : 1.0f;  // 150 A = calibre 100 A x 1.5
+            return -raw * sc * id(pv_cal_i_gain).state / 100.0f;
       - logger.log: "PV Calib. : zéro courant appliqué"
   - platform: template
     name: "PV Calib. Appliquer réf. tension"
@@ -212,8 +244,9 @@ button:
             - number.set:
                 id: pv_cal_i_gain
                 value: !lambda |-
+                  auto sh = id(pzem_shunt_installed).active_index(); float sc = (sh.has_value() && *sh == 2) ? 1.5f : 1.0f;  // 150 A = calibre 100 A x 1.5
                   float g = (id(pv_cal_i_ref).state - id(pv_cal_i_offset).state)
-                            / id(pzem_i_raw).state * 100.0f;
+                            / (id(pzem_i_raw).state * sc) * 100.0f;
                   return std::min(150.0f, std::max(50.0f, g));
             - logger.log: "PV Calib. : gain courant recalculé"
           else:
@@ -289,7 +322,8 @@ sensor:
             float vr = id(pzem_v_raw).state;
             if (isnan(vr)) return;
             float v = vr * id(pv_cal_v_gain).state / 100.0f + id(pv_cal_v_offset).state;
-            float i = x * id(pv_cal_i_gain).state / 100.0f + id(pv_cal_i_offset).state;
+            auto sh = id(pzem_shunt_installed).active_index(); float sc = (sh.has_value() && *sh == 2) ? 1.5f : 1.0f;  // 150 A = calibre 100 A x 1.5
+            float i = x * sc * id(pv_cal_i_gain).state / 100.0f + id(pv_cal_i_offset).state;
             if (v < 0) v = 0;
             if (i < 0) i = 0;   // le PZEM-017 ne mesure pas de courant négatif
             id(pv_voltage).publish_state(v);

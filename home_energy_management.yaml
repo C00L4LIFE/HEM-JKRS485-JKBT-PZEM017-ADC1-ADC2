@@ -29,7 +29,7 @@ substitutions:
 
   # --- Gestion de version (voir VERSION, CHANGELOG.md et packages/version.yaml)
   # Toujours incrémenter ici ET dans le fichier VERSION avant un tag git.
-  project_version: "1.3.0"
+  project_version: "1.3.1"
 
   # --- Pins ---
   # JK BMS RS485 (ancien port eSmart3, même transceiver MAX485)

@@ -9,6 +9,18 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.3.1] - 2026-09-30
+
+### Ajouté
+- PZEM-017 : shunt **150 A** (75 mV). Nouveau sélecteur « PZEM Shunt installé »
+  (50/100/150/200/300 A) : le PZEM-017 n'ayant pas de calibre 150 A, il est
+  réglé sur 100 A et le courant est multiplié par 1.5 côté ESP (zéro et
+  calibration sur référence en tiennent compte).
+
+### Modifié
+- L'ancien sélecteur modbus devient « PZEM Calibre (registre PZEM) »
+  (diagnostic, piloté automatiquement).
+
 ## [1.3.0] - 2026-09-30
 
 ### Ajouté
