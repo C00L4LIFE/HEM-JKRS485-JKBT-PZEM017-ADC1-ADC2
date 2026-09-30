@@ -281,10 +281,18 @@ sensor:
     id: adc2_raw
     unit_of_measurement: mV
     accuracy_decimals: 3
-    update_interval: 1s
+    # Shunt 2 = câble DC de l'onduleur : son courant porte une forte ondulation
+    # à 2x la fréquence AC (120 Hz). Une mesure par seconde tombe au hasard sur
+    # cette ondulation (écarts de +-300 W observés). On échantillonne donc vite,
+    # à une période NON multiple de 8.33 ms (97 ms) pour ne pas se caler sur la
+    # phase, et on moyenne ~40 mesures (~4 s) ; une valeur publiée par ~1 s.
+    update_interval: 97ms
     entity_category: diagnostic
     filters:
       - multiply: 1000
+      - sliding_window_moving_average:
+          window_size: 40
+          send_every: 10
     on_value:
       then:
         - lambda: |-

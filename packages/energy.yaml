@@ -124,7 +124,8 @@ sensor:
 
   # --- Consommation maison = sortie AC de l'onduleur + circuit DC ---------
   # Circuit DC (bilan du bus DC) : ce qui entre dans le bus (PV2 PowerMr +
-  # injection de l'onduleur) moins ce qui va dans la batterie (JK, + = charge).
+  # injection de l'onduleur) moins ce qui en sort (tirage de l'onduleur +
+  # charge de la batterie JK).
   - platform: template
     name: "Circuit DC Puissance"
     id: dc_load_power
@@ -135,13 +136,21 @@ sensor:
     update_interval: 5s
     icon: "mdi:current-dc"
     lambda: |-
+      // Bilan du bus DC : entrées (PV2 + injection onduleur) - sorties
+      // (tirage onduleur + charge batterie). "Onduleur Puissance" est signée
+      // (+ = tiré, - = injecté), "JK Puissance" aussi (+ = charge).
       float pv2 = id(pv2_power_production).state;
-      float inj = id(inv_power_in).state;
+      float inv = id(inv_power).state;
       float bat = id(jk_power).state;
-      if (isnan(bat) || isnan(inj)) return {};
+      if (isnan(bat) || isnan(inv)) return {};
       if (isnan(pv2)) pv2 = 0;
-      float p = pv2 + inj - bat;
+      float p = pv2 - inv - bat;
       return p < 0 ? 0 : p;
+    # Lissage 1 min : les 3 mesures (ADC1, ADC2, JK) ne sont pas synchrones
+    filters:
+      - sliding_window_moving_average:
+          window_size: 12
+          send_every: 1
 
   # Sortie AC estimée de l'onduleur : (PV1 + ce qu'il tire du bus DC - ce
   # qu'il y injecte) x rendement. "Onduleur Puissance" est signée (+ tiré).
@@ -163,6 +172,10 @@ sensor:
       if (isnan(eff)) eff = 90;
       float p = (pv + inv) * eff / 100.0f;
       return p < 0 ? 0 : p;
+    filters:
+      - sliding_window_moving_average:
+          window_size: 12
+          send_every: 1
 
   # Consommation totale de la maison = AC + DC
   - platform: template

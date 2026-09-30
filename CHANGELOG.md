@@ -9,6 +9,17 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.5.1] - 2026-09-30
+
+### Corrigé
+- « Circuit DC » : le tirage de l'onduleur sur le bus n'était pas soustrait
+  (DC = PV2 − Onduleur Puissance − JK).
+- ADC2 (shunt onduleur) très bruité (ondulation 120 Hz du courant DC de
+  l'onduleur, ±300 W d'une mesure à l'autre) : échantillonnage 97 ms +
+  moyenne glissante ~4 s. Sur 3 h d'historique, la moyenne du bilan DC donne
+  ≈ 142 W, cohérent avec le circuit DC réel (120-150 W).
+- « Circuit DC » et « Maison AC » lissés sur 1 min.
+
 ## [1.5.0] - 2026-09-30
 
 ### Corrigé

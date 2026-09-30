@@ -18,7 +18,7 @@
 # Tension = JK (jk_voltage).
 #
 # Calculs dérivés (packages/energy.yaml) :
-#   Circuit DC  = PV2 + injection onduleur - JK    (bilan du bus DC)
+#   Circuit DC  = PV2 - Onduleur Puissance - JK    (bilan du bus DC)
 #   Maison AC   = (PV1 - injection onduleur) x rendement onduleur
 #   Maison      = Maison AC + Circuit DC
 # =============================================================================
