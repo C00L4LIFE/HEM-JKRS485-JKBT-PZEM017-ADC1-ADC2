@@ -1,5 +1,8 @@
 # =============================================================================
-# Home Energy Management - HEM-JKRS485-JKBT-PZEM017-ADC1-ADC2
+# Home Energy Management - HEM-JKRS485-JKBT-PZEM017-ADC1-ADC2 (TEST LOCAL)
+# Copie de home_energy_management.yaml avec packages en !include locaux :
+#   python -m esphome run local-test.yaml --device COM4
+# Répercuter tout changement de pins/substitutions dans les DEUX fichiers.
 # Évolution de HEM_ESPHOME (https://github.com/C00L4LIFE/HEM_ESPHOME) :
 #   - eSmart3 retiré : son port RS485 (16/17/4) est réattribué au JK BMS,
 #     en ÉCOUTE SEULE (sniffer passif, driver RS485 forcé désactivé)
@@ -104,27 +107,21 @@ external_components:
     components: [jbd_bms_ble]
     refresh: 1d
 
-# Packages récupérés depuis GitHub (dépôt public) : dans l'add-on ESPHome de
-# Home Assistant, seuls CE fichier et secrets.yaml sont nécessaires.
-# refresh: 0s => re-téléchargés à chaque compilation (jamais de cache périmé).
-# Pour tester des modifs locales AVANT de les pousser : local-test.yaml.
+# Packages LOCAUX (!include) : variante de test de home_energy_management
+# .yaml, compile les fichiers de ce dossier au lieu de la version publiée
+# sur GitHub. Garder le reste identique au fichier principal.
 packages:
-  hem_jk:
-    url: https://github.com/C00L4LIFE/HEM-JKRS485-JKBT-PZEM017-ADC1-ADC2
-    ref: main
-    refresh: 0s
-    files:
-      - packages/version.yaml
-      - packages/wifi.yaml
-      - packages/api.yaml
-      - packages/system.yaml
-      - packages/gpio.yaml
-      - packages/jk_bms_rs485.yaml
-      - packages/jk_bms_ble_config.yaml
-      - packages/jbd_bms_ble.yaml
-      - packages/pzem017_solar.yaml
-      - packages/ads1115_adc.yaml
-      - packages/energy.yaml
+  version: !include packages/version.yaml
+  wifi: !include packages/wifi.yaml
+  api: !include packages/api.yaml
+  system: !include packages/system.yaml
+  gpio: !include packages/gpio.yaml
+  jk_bms_rs485: !include packages/jk_bms_rs485.yaml
+  jk_bms_ble_config: !include packages/jk_bms_ble_config.yaml
+  jbd_bms_ble: !include packages/jbd_bms_ble.yaml
+  pzem017_solar: !include packages/pzem017_solar.yaml
+  ads1115_adc: !include packages/ads1115_adc.yaml
+  energy: !include packages/energy.yaml
 
 logger:
   # DEBUG temporaire (v1.0.1) : diagnostic du bus JK (dump hexa uart_jk et

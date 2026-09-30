@@ -8,7 +8,7 @@
 
 api:
   encryption:
-    key: !secret api_encryption_key
+    key: !secret hem_jk_api_encryption_key
   # Équivalent watchdog : si HA ne se connecte plus, reboot (défaut 15 min)
   reboot_timeout: 15min
 

@@ -81,17 +81,25 @@ l'énergie PV repose uniquement sur la NVS locale.
 Tableau de bord Énergie : production solaire = **« PV Énergie totale »** ;
 batterie = **« JK Énergie chargée » / « JK Énergie déchargée »**.
 
-## Compilation / flash
+## Installation
 
-Dépôt privé → packages en `!include` locaux : garder le dossier complet.
+### Dans l'add-on ESPHome de Home Assistant
+Les packages sont téléchargés depuis ce dépôt public à chaque compilation :
+1. Copier **uniquement** `home_energy_management.yaml` dans `/config/esphome/`
+   (le renommer `hem-jk.yaml` pour ne pas écraser l'ancien HEM).
+2. Ajouter au `secrets.yaml` de HA les clés de [`secrets.yaml.example`](secrets.yaml.example)
+   manquantes, notamment `hem_jk_api_encryption_key` et `jk_bms_mac_address`.
+3. « Installer » (OTA). Après un push sur `main`, relancer « Installer » suffit.
 
+### En local (CLI)
 ```bash
 cp secrets.yaml.example secrets.yaml   # puis renseigner (clé API UNIQUE)
-python -m esphome config home_energy_management.yaml
-python -m esphome run home_energy_management.yaml    # 1er flash : USB
+python -m esphome run home_energy_management.yaml   # version publiée sur GitHub
+python -m esphome run local-test.yaml               # fichiers locaux non poussés
 ```
-
 Sous Windows, compiler depuis PowerShell/cmd (pas Git Bash : ESP-IDF refuse MSys).
+`local-test.yaml` duplique les substitutions : répercuter tout changement de pins
+dans les deux fichiers.
 
 ## Gestion de version
 

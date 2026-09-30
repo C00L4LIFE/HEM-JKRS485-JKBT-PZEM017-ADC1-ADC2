@@ -9,6 +9,19 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.1.0] - 2026-09-29
+
+### Modifié
+- Dépôt **public** : `home_energy_management.yaml` charge ses packages depuis
+  GitHub (`refresh: 0s`) — dans l'add-on ESPHome de HA, seuls ce fichier et
+  `secrets.yaml` sont nécessaires.
+- Clé API dédiée `hem_jk_api_encryption_key` (le `secrets.yaml` de HA est
+  partagé entre devices).
+
+### Ajouté
+- `local-test.yaml` : même config avec packages `!include` locaux, pour tester
+  avant de pousser.
+
 ## [1.0.1] - 2026-09-29
 
 ### Ajouté
