@@ -4,3 +4,6 @@ secrets.yaml
 # Build ESPHome
 .esphome/
 __pycache__/
+
+# Tableaux de bord Home Assistant (copies locales, non publiées)
+HA_UI/
