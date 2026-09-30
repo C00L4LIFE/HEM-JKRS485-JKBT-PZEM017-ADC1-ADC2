@@ -9,6 +9,17 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.2.0] - 2026-09-29
+
+### Ajouté
+- **PV2 / PowerMr 60A** (`packages/pv2_powermr.yaml`) : production du 2e
+  régulateur via le shunt ADC1 (A0-A1) × tension JK — puissance, production
+  filtrée (seuil nuit réglable), moyenne lissée, énergie totale persistante
+  (NVS + helper optionnel `input_number.hem_jk_pv2_energy_total`).
+
+### Modifié
+- « Maison Puissance » = PV (PZEM-017) + PV2 − puissance JK.
+
 ## [1.1.1] - 2026-09-29
 
 ### Corrigé

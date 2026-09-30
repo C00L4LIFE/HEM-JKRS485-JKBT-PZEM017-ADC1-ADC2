@@ -1,0 +1,230 @@
+# =============================================================================
+# PV2 - régulateur PowerMr 60A (sans port de communication)
+#
+# Mesuré par le shunt 75 mV / 100 A sur l'ADS1115, voie ADC1 (A0-A1) :
+# courant = "ADC1 Courant" (calibré via les entités ADC1 de
+# packages/ads1115_adc.yaml), tension = JK (jk_voltage, seule référence
+# batterie du système). Reprend l'ancien "MPPT2" de HEM_ESPHOME.
+#
+# Filtre nuit : pas de mesure de tension panneaux pour ce régulateur. Sous
+# "PV2 Seuil production" (A), le courant lu est du bruit ADC ou
+# l'autoconsommation du PowerMr : la production est forcée à 0 (la puissance
+# signée "PV2 Puissance" reste brute, non filtrée).
+#
+# Énergie cumulée persistante : même schéma offset + NVS + helper HA que
+# "PV Énergie totale" (packages/pzem017_solar.yaml). Helper optionnel :
+#   input_number.hem_jk_pv2_energy_total (0 à 999999, pas 0.1, Wh)
+# =============================================================================
+
+globals:
+  - id: pv2_pw_avg_buffer
+    type: float[100]
+  - id: pv2_pw_avg_idx
+    type: int
+    initial_value: '0'
+  - id: pv2_pw_avg_count
+    type: int
+    initial_value: '0'
+  - id: pv2_pw_avg_last_ms
+    type: uint32_t
+    initial_value: '0'
+  - id: pv2_energy_offset
+    type: float
+    initial_value: '0'
+  - id: pv2_energy_restored
+    type: bool
+    initial_value: 'false'
+  - id: nvs_pv2_energy
+    type: float
+    restore_value: true
+    initial_value: '0'
+
+number:
+  - platform: template
+    name: "PV2 Seuil production"
+    id: pv2_threshold
+    unit_of_measurement: A
+    min_value: 0
+    max_value: 5
+    step: 0.01
+    initial_value: 0.1
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:weather-night"
+  - platform: template
+    name: "PV2 Lissage Fenêtre"
+    id: pv2_pw_avg_window
+    min_value: 1
+    max_value: 100
+    step: 1
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    entity_category: config
+    mode: box
+    icon: "mdi:chart-bell-curve"
+  - platform: template
+    name: "PV2 Lissage Intervalle"
+    id: pv2_pw_avg_interval
+    min_value: 1
+    max_value: 30
+    step: 1
+    initial_value: 1
+    restore_value: true
+    optimistic: true
+    entity_category: config
+    unit_of_measurement: s
+    mode: box
+    icon: "mdi:timer-outline"
+
+# Appelé par "ADC1 Courant" (packages/ads1115_adc.yaml) à chaque mesure :
+# puissance et production calculées dans le même évènement que le courant
+# (pas de minuteur séparé -> pas de désynchronisation courant/puissance).
+script:
+  - id: pv2_on_current
+    mode: queued
+    max_runs: 3
+    parameters:
+      i: float
+    then:
+      - lambda: |-
+          float v = id(jk_voltage).state;
+          if (isnan(v)) return;
+          float p = v * i;
+          id(pv2_power).publish_state(p);
+          float th = id(pv2_threshold).state;
+          if (isnan(th)) th = 0.1f;
+          id(pv2_power_production).publish_state(i > th ? p : 0.0f);
+
+sensor:
+  - platform: template
+    name: "PV2 Puissance"
+    id: pv2_power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:solar-power"
+
+  # Production >= 0, filtrée la nuit : capteur pour le tableau de bord Énergie
+  - platform: template
+    name: "PV2 Puissance (production)"
+    id: pv2_power_production
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:solar-power"
+
+  # Moyenne glissante sur table circulaire (fenêtre/intervalle réglables)
+  - platform: template
+    name: "PV2 Puissance moyenne"
+    id: pv2_power_avg
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      float v = id(pv2_power_production).state;
+      if (isnan(v)) return {};
+      if (v <= 0) {
+        // Nuit / pas de production : on vide la table pour repartir propre
+        id(pv2_pw_avg_count) = 0;
+        id(pv2_pw_avg_idx) = 0;
+        return 0.0f;
+      }
+      uint32_t now = millis();
+      uint32_t interval_ms = (uint32_t) id(pv2_pw_avg_interval).state * 1000;
+      if (interval_ms < 1000) interval_ms = 1000;
+      if (id(pv2_pw_avg_count) > 0 && (now - id(pv2_pw_avg_last_ms)) < interval_ms)
+        return {};
+      id(pv2_pw_avg_last_ms) = now;
+      id(pv2_pw_avg_buffer)[id(pv2_pw_avg_idx)] = v;
+      id(pv2_pw_avg_idx) = (id(pv2_pw_avg_idx) + 1) % 100;
+      if (id(pv2_pw_avg_count) < 100)
+        id(pv2_pw_avg_count) += 1;
+      int window = (int) id(pv2_pw_avg_window).state;
+      if (window < 1) window = 1;
+      if (window > 100) window = 100;
+      int n = id(pv2_pw_avg_count) < window ? id(pv2_pw_avg_count) : window;
+      float sum = 0;
+      int pos = id(pv2_pw_avg_idx);
+      for (int k = 0; k < n; k++) {
+        pos = (pos + 99) % 100;
+        sum += id(pv2_pw_avg_buffer)[pos];
+      }
+      return sum / n;
+
+  - platform: integration
+    id: pv2_energy_raw
+    sensor: pv2_power_production
+    time_unit: h
+    internal: true
+    accuracy_decimals: 2
+
+  - platform: homeassistant
+    id: ha_pv2_energy
+    entity_id: input_number.hem_jk_pv2_energy_total
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            if (id(pv2_energy_restored)) return;
+            if (!std::isfinite(x) || x < 0) return;
+            id(pv2_energy_offset) = std::max(id(pv2_energy_offset), x);
+            id(pv2_energy_restored) = true;
+
+  - platform: template
+    name: "PV2 Énergie totale"
+    id: pv2_energy_total
+    unit_of_measurement: Wh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: |-
+      float raw = id(pv2_energy_raw).state;
+      if (isnan(raw)) raw = 0;
+      float total = id(pv2_energy_offset) + raw;
+      return total < 0 ? 0 : total;
+
+button:
+  - platform: template
+    name: "PV2 Réinitialiser énergie"
+    entity_category: config
+    icon: "mdi:counter"
+    on_press:
+      - lambda: |-
+          float raw = id(pv2_energy_raw).state;
+          id(pv2_energy_offset) = isnan(raw) ? 0 : -raw;
+          id(pv2_energy_restored) = true;
+          id(nvs_pv2_energy) = 0;
+          global_preferences->sync();
+          id(pv2_energy_total).update();
+      - homeassistant.action:
+          action: input_number.set_value
+          data:
+            entity_id: input_number.hem_jk_pv2_energy_total
+            value: "0"
+
+interval:
+  - interval: 30s
+    then:
+      - lambda: |-
+          float v = id(pv2_energy_total).state;
+          if (std::isfinite(v)) id(nvs_pv2_energy) = v;
+      - if:
+          condition:
+            lambda: 'return id(pv2_energy_restored);'
+          then:
+            - homeassistant.action:
+                action: input_number.set_value
+                data:
+                  entity_id: input_number.hem_jk_pv2_energy_total
+                  value: !lambda |-
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.1f", id(pv2_energy_total).state);
+                    return std::string(buf);

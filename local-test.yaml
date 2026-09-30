@@ -11,8 +11,8 @@
 #   - Référence tension batterie : fournie par le JK (RS485), plus aucune autre
 #   - Production solaire : PZEM-017 côté PANNEAUX (avant régulateur), avec
 #     interface de calibration (calibre shunt + corrections)
-#   - ADS1115 : 2 voies génériques ADC1 (A0-A1) / ADC2 (A2-A3) avec
-#     calibration ; l'ancien shunt MPPT2 et le shunt onduleur sont supprimés
+#   - ADS1115 : ADC1 (A0-A1) = shunt PV2 / PowerMr 60A, ADC2 (A2-A3) libre,
+#     tous deux calibrables
 #   - Pas de capteur "DC Load" pour le moment
 #   - JBD BMS en BLE : inchangé
 # =============================================================================
@@ -32,7 +32,7 @@ substitutions:
 
   # --- Gestion de version (voir VERSION, CHANGELOG.md et packages/version.yaml)
   # Toujours incrémenter ici ET dans le fichier VERSION avant un tag git.
-  project_version: "1.1.1"
+  project_version: "1.2.0"
 
   # --- Pins ---
   # JK BMS RS485 (ancien port eSmart3, même transceiver MAX485)
@@ -76,6 +76,7 @@ esphome:
       # (même schéma offset + NVS + helper HA que HEM_ESPHOME / jk-bms).
       - lambda: |-
           id(pv_energy_offset) = id(nvs_pv_energy);
+          id(pv2_energy_offset) = id(nvs_pv2_energy);
       # JK Bluetooth : connecté au démarrage seulement en mode automatique,
       # sinon déconnecté (à la demande) - voir packages/jk_bms_ble_config.yaml.
       - if:
@@ -121,6 +122,7 @@ packages:
   jbd_bms_ble: !include packages/jbd_bms_ble.yaml
   pzem017_solar: !include packages/pzem017_solar.yaml
   ads1115_adc: !include packages/ads1115_adc.yaml
+  pv2_powermr: !include packages/pv2_powermr.yaml
   energy: !include packages/energy.yaml
 
 logger:

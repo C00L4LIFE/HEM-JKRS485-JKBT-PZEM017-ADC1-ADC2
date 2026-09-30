@@ -1,7 +1,7 @@
 # =============================================================================
 # Capteurs dérivés - référence batterie = JK BMS (RS485)
 #   - puissance JK lissée (table circulaire, fenêtre/intervalle réglables)
-#   - puissance maison = production PV (PZEM-017) - puissance batterie JK
+#   - puissance maison = PV (PZEM-017) + PV2 (PowerMr) - puissance batterie JK
 #   - énergies JK chargée/déchargée cumulées (Wh, tableau de bord Énergie HA)
 #   - énergie restante / nominale JK (Wh), temps restant estimé (min)
 #   - énergies JBD chargée/déchargée (inchangées, le JBD reste en BLE)
@@ -85,7 +85,8 @@ sensor:
       }
       return sum / n;
 
-  # Consommation maison côté DC : production PV - charge batterie JK.
+  # Consommation maison côté DC : production PV (PZEM-017) + PV2 (PowerMr)
+  # - charge batterie JK.
   # NB : le PZEM-017 mesure AVANT le régulateur, la valeur inclut donc les
   # pertes du régulateur (légère surestimation de la consommation).
   - platform: template
@@ -98,10 +99,12 @@ sensor:
     update_interval: 5s
     lambda: |-
       float pv = id(pv_power).state;
+      float pv2 = id(pv2_power_production).state;
       float bat = id(jk_power).state;   // + = charge batterie
       if (isnan(bat)) return {};        // pas de référence batterie = pas de calcul
       if (isnan(pv)) pv = 0;
-      float p = pv - bat;
+      if (isnan(pv2)) pv2 = 0;
+      float p = pv + pv2 - bat;
       return p < 0 ? 0 : p;
 
   - platform: integration
