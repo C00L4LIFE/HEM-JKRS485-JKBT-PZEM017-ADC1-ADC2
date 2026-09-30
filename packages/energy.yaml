@@ -1,7 +1,8 @@
 # =============================================================================
 # Capteurs dérivés - référence batterie = JK BMS (RS485)
 #   - puissance JK lissée (table circulaire, fenêtre/intervalle réglables)
-#   - puissance maison = PV (PZEM-017) + PV2 (PowerMr) - puissance batterie JK
+#   - puissance maison = puissance tirée par l'onduleur (shunt ADC1)
+#   - bilan du bus DC (écart PV + onduleur - JK)
 #   - énergies JK chargée/déchargée cumulées (Wh, tableau de bord Énergie HA)
 #   - énergie restante / nominale JK (Wh)
 #   - temps restant estimé (min) + heure estimée de fin de charge / décharge,
@@ -122,10 +123,11 @@ sensor:
       }
       return sum / n;
 
-  # Consommation maison côté DC : production PV (PZEM-017) + PV2 (PowerMr)
-  # - charge batterie JK.
-  # NB : le PZEM-017 mesure AVANT le régulateur, la valeur inclut donc les
-  # pertes du régulateur (légère surestimation de la consommation).
+  # Consommation maison = ce que l'onduleur TIRE du bus DC (shunt ADC1,
+  # bidirectionnel) pour alimenter la maison. NB : quand le MPPT intégré de
+  # l'onduleur couvre lui-même la maison, cette part n'est pas vue par le
+  # shunt (seul le surplus net est mesuré) : valeur = consommation prise sur
+  # la batterie / le bus DC.
   - platform: template
     name: "Maison Puissance"
     id: house_power
@@ -135,14 +137,30 @@ sensor:
     accuracy_decimals: 0
     update_interval: 5s
     lambda: |-
+      float out = id(inv_power_out).state;
+      if (isnan(out)) return {};
+      return out;
+
+  # Bilan du bus DC : sources mesurées (PV PZEM + apport net onduleur) moins
+  # la puissance batterie JK. Sans charge DC, doit rester proche de 0 : l'écart
+  # = pertes du régulateur (le PZEM mesure côté panneaux) + erreurs de mesure
+  # + éventuelle charge DC non mesurée.
+  - platform: template
+    name: "Bus DC écart"
+    id: dc_bus_gap
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 5s
+    entity_category: diagnostic
+    lambda: |-
       float pv = id(pv_power).state;
-      float pv2 = id(pv2_power_production).state;
-      float bat = id(jk_power).state;   // + = charge batterie
-      if (isnan(bat)) return {};        // pas de référence batterie = pas de calcul
+      float inv = id(inv_power).state;
+      float bat = id(jk_power).state;
+      if (isnan(bat) || isnan(inv)) return {};
       if (isnan(pv)) pv = 0;
-      if (isnan(pv2)) pv2 = 0;
-      float p = pv + pv2 - bat;
-      return p < 0 ? 0 : p;
+      return pv + inv - bat;
 
   - platform: integration
     name: "Maison Énergie"

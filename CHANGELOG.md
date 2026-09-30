@@ -9,6 +9,25 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.4.0] - 2026-09-30
+
+### Modifié
+- **ADC1 = shunt bidirectionnel de l'onduleur hybride** (onduleur + MPPT
+  intégré) : `packages/pv2_powermr.yaml` devient `packages/onduleur_adc1.yaml`.
+  + = l'onduleur injecte dans le bus DC, − = il tire sur le bus DC.
+- « Maison Puissance » = puissance tirée par l'onduleur sur le bus DC.
+- « PV2 Seuil production » sert de zone morte dans les deux sens.
+
+### Ajouté
+- « Onduleur Courant », « Onduleur Puissance » (signés), « Onduleur Puissance
+  injectée / tirée », « Onduleur Énergie injectée / tirée ».
+- « Bus DC écart » (diagnostic) : PV + onduleur − JK.
+
+### Conservé
+- Capteurs « PV2 … » (mêmes entity_id) : PV2 Puissance = puissance onduleur
+  signée, PV2 Puissance (production) / moyenne / Énergie totale = apport net
+  du MPPT de l'onduleur.
+
 ## [1.3.1] - 2026-09-30
 
 ### Ajouté

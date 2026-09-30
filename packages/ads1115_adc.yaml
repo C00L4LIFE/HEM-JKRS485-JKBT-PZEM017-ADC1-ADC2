@@ -1,8 +1,8 @@
 # =============================================================================
 # ADS1115 - 2 voies différentielles génériques ADC1 (A0-A1) et ADC2 (A2-A3)
 #
-# ADC1 = shunt du régulateur PV2 / PowerMr 60A (production calculée dans
-# packages/pv2_powermr.yaml). ADC2 = voie libre (pas de capteur DC Load pour
+# ADC1 = shunt BIDIRECTIONNEL de l'onduleur hybride (calculs dans
+# packages/onduleur_adc1.yaml). ADC2 = voie libre (pas de capteur DC Load pour
 # le moment). Les deux voies sont calibrables depuis HA / le serveur web :
 #
 #   courant = sens x (tension_mesurée / mV_nominal x A_nominal) x gain/100 + offset
@@ -15,7 +15,7 @@
 #     recalculé d'après une pince ampèremétrique.
 #   - interrupteur "ADCx Inverser sens" : remplace l'ancien multiply négatif.
 #
-# Aucune puissance / énergie n'est calculée ici (voir pv2_powermr.yaml pour ADC1). Gain ADS ±0.512 V (≈ 680 A équivalent sur 75 mV).
+# Aucune puissance / énergie n'est calculée ici (voir onduleur_adc1.yaml pour ADC1). Gain ADS ±0.512 V (≈ 680 A équivalent sur 75 mV).
 # Adresse 0x48 (ADDR à GND) ; le scan I2C au boot confirme l'adresse.
 # =============================================================================
 
@@ -257,7 +257,7 @@ sensor:
             id(adc1_uncal).publish_state(i);
             float ic = i * id(adc1_gain).state / 100.0f + id(adc1_offset).state;
             id(adc1_current).publish_state(ic);
-            // ADC1 = shunt du régulateur PV2 (PowerMr 60A) : packages/pv2_powermr.yaml
+            // ADC1 = shunt bidirectionnel de l'onduleur : packages/onduleur_adc1.yaml
             id(pv2_on_current).execute(ic);
   # Courant avant gain/offset (base des boutons de calibration)
   - platform: template
