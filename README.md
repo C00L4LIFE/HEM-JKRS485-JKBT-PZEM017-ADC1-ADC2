@@ -42,9 +42,12 @@ ne bouge pas au boot : idéal pour le DE/RE.
   RS485 interne ; l'ESP les écoute. Aucune émission possible : DE/RE maintenu
   à 0 et UART sans TX. Les infos appareil (modèle, versions) ne passent jamais
   sur ce bus → lues en Bluetooth.
-- **Bluetooth (paramètres)** : interrupteur **« JK BT Connexion »**. OFF au
-  démarrage et pendant une OTA, coupure auto après **« JK BT Déconnexion
-  auto »** minutes (0 = jamais). Le JK n'accepte qu'une connexion BLE : tant
+- **Bluetooth (paramètres)**, deux modes choisis par **« JK BT Connexion
+  auto »** (persistant) :
+  - OFF = **à la demande** : **« JK BT Connexion »** pour se connecter,
+    coupure auto après **« JK BT Déconnexion auto »** minutes (0 = jamais) ;
+  - ON = **automatique** : connexion au démarrage, liaison permanente.
+  La liaison est toujours coupée pendant une OTA. Le JK n'accepte qu'une connexion BLE : tant
   que c'est OFF, l'app JK du téléphone est utilisable. Tous les réglages sont
   préfixés « JK Param … ».
 

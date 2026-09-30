@@ -3,8 +3,8 @@
 # Évolution de HEM_ESPHOME (https://github.com/C00L4LIFE/HEM_ESPHOME) :
 #   - eSmart3 retiré : son port RS485 (16/17/4) est réattribué au JK BMS,
 #     en ÉCOUTE SEULE (sniffer passif, driver RS485 forcé désactivé)
-#   - JK BMS en Bluetooth : uniquement pour PARAMÉTRER, connexion sur demande
-#     (interrupteur "JK BT Connexion", déconnexion automatique)
+#   - JK BMS en Bluetooth : uniquement pour PARAMÉTRER, connexion à la demande
+#     ("JK BT Connexion" + déconnexion auto) ou automatique ("JK BT Connexion auto")
 #   - Référence tension batterie : fournie par le JK (RS485), plus aucune autre
 #   - Production solaire : PZEM-017 côté PANNEAUX (avant régulateur), avec
 #     interface de calibration (calibre shunt + corrections)
@@ -29,15 +29,17 @@ substitutions:
 
   # --- Gestion de version (voir VERSION, CHANGELOG.md et packages/version.yaml)
   # Toujours incrémenter ici ET dans le fichier VERSION avant un tag git.
-  project_version: "1.0.0"
+  project_version: "1.0.1"
 
   # --- Pins ---
   # JK BMS RS485 (ancien port eSmart3, même transceiver MAX485)
   jk_rx_pin: "16"
   jk_de_pin: "4"          # DE/RE du MAX485 : forcé BAS en permanence = réception seule
   # PZEM-017 (ancien bus PZEM-004T, + transceiver RS485 à ajouter)
-  pzem_rx_pin: "13"
-  pzem_tx_pin: "14"
+  # v1.0.1 : RX/TX inversés par rapport à v1.0.0 (seule la LED RX du
+  # module clignotait : l'ESP émettait sur la broche réception du module).
+  pzem_rx_pin: "14"
+  pzem_tx_pin: "13"
   pzem_de_pin: "18"       # DE/RE du MAX485 PZEM (retirer flow_control_pin si module auto-direction)
   i2c_sda_pin: "21"
   i2c_scl_pin: "22"
@@ -71,9 +73,15 @@ esphome:
       # (même schéma offset + NVS + helper HA que HEM_ESPHOME / jk-bms).
       - lambda: |-
           id(pv_energy_offset) = id(nvs_pv_energy);
-      # JK Bluetooth déconnecté par défaut (paramétrage à la demande, app
-      # téléphone libre) : voir packages/jk_bms_ble_config.yaml.
-      - switch.turn_off: jk_ble_connect
+      # JK Bluetooth : connecté au démarrage seulement en mode automatique,
+      # sinon déconnecté (à la demande) - voir packages/jk_bms_ble_config.yaml.
+      - if:
+          condition:
+            switch.is_on: jk_ble_auto
+          then:
+            - switch.turn_on: jk_ble_connect
+          else:
+            - switch.turn_off: jk_ble_connect
 
 esp32:
   board: esp32dev
@@ -113,9 +121,36 @@ packages:
   energy: !include packages/energy.yaml
 
 logger:
-  level: INFO
+  # DEBUG temporaire (v1.0.1) : diagnostic du bus JK (dump hexa uart_jk et
+  # décodage du sniffer). Les composants bavards restent en INFO/WARN.
+  # Repasser à INFO une fois le JK décodé.
+  level: DEBUG
   # ESP32 = 3 UART matériels : UART0 (logger) + JK RS485 + PZEM-017.
   logs:
-    jk_rs485_sniffer: INFO
+    jk_rs485_sniffer: DEBUG
+    jk_rs485_bms: DEBUG
+    uart_debug: DEBUG
+    sensor: WARN
+    binary_sensor: WARN
+    text_sensor: WARN
+    number: WARN
+    switch: WARN
+    select: WARN
+    modbus_controller: INFO
+    modbus: INFO
+    jbd_bms_ble: INFO
+    jk_bms_ble: INFO
+    ble_client: INFO
+    ble_rssi_sensor: INFO
+    ads1115: INFO
+    integration: WARN
+    template: WARN
+    api: INFO
+    api.connection: INFO
+    scheduler: INFO
+    component: INFO
+    json: INFO
+    web_server: INFO
+    esp32_ble: INFO
     esp32_ble_tracker: INFO
     esp32_ble_client: INFO

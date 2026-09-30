@@ -4,13 +4,15 @@
 # Les MESURES du JK viennent du RS485 (packages/jk_bms_rs485.yaml). Le BLE ne
 # sert qu'à lire/écrire les réglages du BMS (numbers / switches / selects).
 #
-# Le JK n'accepte qu'UNE connexion Bluetooth à la fois : l'ESP reste donc
-# déconnecté par défaut, ce qui laisse l'app JK du téléphone libre.
-#   - "JK BT Connexion" (interrupteur) : ON = l'ESP se connecte au JK,
-#     OFF = déconnexion. Forcé à OFF au démarrage (voir on_boot du fichier
-#     principal) et pendant une mise à jour OTA.
-#   - "JK BT Déconnexion auto" : durée max de connexion (min), 0 = jamais.
-#     Évite d'oublier la liaison ouverte (et de bloquer l'app téléphone).
+# Le JK n'accepte qu'UNE connexion Bluetooth à la fois. Deux modes :
+#   - À LA DEMANDE (défaut) : "JK BT Connexion auto" = OFF. L'ESP reste
+#     déconnecté (app JK du téléphone libre). "JK BT Connexion" = ON pour se
+#     connecter ; coupure automatique après "JK BT Déconnexion auto" minutes
+#     (0 = jamais).
+#   - AUTOMATIQUE : "JK BT Connexion auto" = ON (persistant). L'ESP se connecte
+#     au démarrage et reste connecté (le délai de déconnexion ne s'applique
+#     pas). Remettre sur OFF déconnecte et revient au mode à la demande.
+#   Pendant une mise à jour OTA la liaison est toujours coupée.
 #   - Après connexion, attendre ~10 s que les réglages soient relus avant de
 #     modifier une valeur (bouton "JK BT Relire réglages" si besoin).
 #
@@ -70,6 +72,19 @@ switch:
       name: "JK Param Enregistrement périodique"
     charging_float_mode:
       name: "JK Param Mode floating"
+
+  # Mode de connexion : ON = automatique (permanente), OFF = à la demande
+  - platform: template
+    name: "JK BT Connexion auto"
+    id: jk_ble_auto
+    icon: "mdi:bluetooth-settings"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    on_turn_on:
+      - switch.turn_on: jk_ble_connect
+    on_turn_off:
+      - switch.turn_off: jk_ble_connect
 
 number:
   - platform: template
@@ -185,7 +200,7 @@ text_sensor:
     hardware_version:
       name: "JK Version matérielle"
 
-# Déconnexion automatique après "JK BT Déconnexion auto" minutes.
+# Mode à la demande : déconnexion automatique après "JK BT Déconnexion auto" minutes.
 interval:
   - interval: 30s
     then:
@@ -193,6 +208,7 @@ interval:
           condition:
             lambda: |-
               if (!id(jk_ble_connect).state) return false;
+              if (id(jk_ble_auto).state) return false;   // mode automatique
               float t = id(jk_ble_timeout).state;
               if (isnan(t) || t <= 0) return false;
               return (millis() - id(jk_ble_on_since)) >= (uint32_t) (t * 60000.0f);

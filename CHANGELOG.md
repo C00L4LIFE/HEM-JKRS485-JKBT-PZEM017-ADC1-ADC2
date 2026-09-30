@@ -9,6 +9,24 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.0.1] - 2026-09-29
+
+### Ajouté
+- JK BT : mode de connexion configurable — interrupteur persistant
+  « JK BT Connexion auto » (ON = connexion automatique au démarrage et
+  permanente ; OFF = à la demande avec déconnexion automatique).
+
+### Modifié
+- Nouveau JK BMS : MAC Bluetooth A4:C1:38:0A:01:A5 (`secrets.yaml`).
+
+### Corrigé
+- PZEM-017 : RX/TX inversés (RX 14 / TX 13) — seule la LED RX du module
+  RS485 clignotait, l'ESP émettait sur la broche réception du module.
+
+### Diagnostic (temporaire)
+- Logger en DEBUG + dump hexa du bus JK (`uart_jk` debug) : des octets
+  arrivent du JK mais aucune trame n'était décodée en v1.0.0.
+
 ## [1.0.0] - 2026-09-29
 
 Première version, dérivée de HEM_ESPHOME (`8e44ecc`) et de jk-bms
