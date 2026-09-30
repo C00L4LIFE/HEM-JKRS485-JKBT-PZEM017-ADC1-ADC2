@@ -29,7 +29,7 @@ substitutions:
 
   # --- Gestion de version (voir VERSION, CHANGELOG.md et packages/version.yaml)
   # Toujours incrémenter ici ET dans le fichier VERSION avant un tag git.
-  project_version: "1.1.0"
+  project_version: "1.1.1"
 
   # --- Pins ---
   # JK BMS RS485 (ancien port eSmart3, même transceiver MAX485)
@@ -127,36 +127,10 @@ packages:
       - packages/energy.yaml
 
 logger:
-  # DEBUG temporaire (v1.0.1) : diagnostic du bus JK (dump hexa uart_jk et
-  # décodage du sniffer). Les composants bavards restent en INFO/WARN.
-  # Repasser à INFO une fois le JK décodé.
-  level: DEBUG
+  level: INFO
   # ESP32 = 3 UART matériels : UART0 (logger) + JK RS485 + PZEM-017.
   logs:
-    jk_rs485_sniffer: DEBUG
-    jk_rs485_bms: DEBUG
-    uart_debug: DEBUG
-    sensor: WARN
-    binary_sensor: WARN
-    text_sensor: WARN
-    number: WARN
-    switch: WARN
-    select: WARN
-    modbus_controller: INFO
-    modbus: INFO
-    jbd_bms_ble: INFO
-    jk_bms_ble: INFO
-    ble_client: INFO
-    ble_rssi_sensor: INFO
-    ads1115: INFO
-    integration: WARN
-    template: WARN
-    api: INFO
-    api.connection: INFO
-    scheduler: INFO
-    component: INFO
-    json: INFO
-    web_server: INFO
-    esp32_ble: INFO
+    jk_rs485_sniffer: WARN
+    jk_rs485_bms: WARN
     esp32_ble_tracker: INFO
     esp32_ble_client: INFO

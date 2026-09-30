@@ -9,6 +9,18 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.1.1] - 2026-09-29
+
+### Corrigé
+- JK RS485 : les trames cellules (0x02 : tension, courant, SoC, cellules)
+  étaient ignorées — `jk_rs485_bms` exige le number `cell_count_settings`
+  pour les décoder. Déclaré en `internal` (aucune entité, aucune écriture).
+- Câblage JK : A/B inversés côté matériel (corrigé par l'utilisateur).
+
+### Supprimé
+- Mode diagnostic (logger DEBUG, dump hexa du bus JK) : logger en INFO,
+  sniffer/bms JK en WARN.
+
 ## [1.1.0] - 2026-09-29
 
 ### Modifié

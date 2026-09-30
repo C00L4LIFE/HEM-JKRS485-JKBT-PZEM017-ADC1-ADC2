@@ -33,16 +33,6 @@ uart:
     # Pas de tx_pin : écoute seule (voir en-tête).
     baud_rate: 115200
     rx_buffer_size: 1024
-    # Diagnostic (v1.0.1) : dump hexa brut de tout ce qui arrive sur le bus,
-    # pour vérifier que le JK émet bien des trames 55 AA EB 90. À retirer
-    # une fois le décodage confirmé (logs très volumineux).
-    debug:
-      direction: RX
-      dummy_receiver: false
-      after:
-        timeout: 5ms
-      sequence:
-        - lambda: UARTDebug::log_hex(direction, bytes, ' ');
 
 # DE/RE du MAX485 maintenu à 0 = réception uniquement.
 switch:
@@ -60,6 +50,13 @@ switch:
 number:
   - platform: jk_rs485_bms
     jk_rs485_bms_id: jk_bms
+    # OBLIGATOIRE : le composant ne décode les trames cellules (0x02 :
+    # tension, courant, SoC, cellules...) que si ce number existe - il y lit
+    # le nombre de cellules issu de la trame réglages (0x01). Interne : pas
+    # d'entité HA, et aucune écriture possible (écoute seule).
+    cell_count_settings:
+      name: "JK Nombre de cellules (réglage)"
+      internal: true
 
 jk_rs485_sniffer:
   - id: jk_sniffer
