@@ -1,0 +1,130 @@
+# =============================================================================
+# Onduleur hybride Techfine (onduleur + MPPT intégré) - SHUNT 2 sur ADC2
+#
+# Topologie (schéma utilisateur 2026-09-30) :
+#   PV1 --[PZEM-017]--> Onduleur hybride (MPPT) --AC--> maison
+#                              |  (-) SHUNT 2 = ADC2 (A2-A3), bidirectionnel
+#                              +-------------------+
+#   PV2 --> MPPT PowerMr 60A --(-) SHUNT 1 = ADC1 -+--> batterie JK
+#                                                  +--> circuit DC (~120-150 W)
+#
+# Shunt 2 (75 mV / 100 A) sur le négatif de l'onduleur : courant dans les deux
+# sens. Convention publiée (celle de l'ancien "Onduleur" de HEM_ESPHOME, dont
+# HA a réattribué les entity_id) :
+#   + (positif) = l'onduleur TIRE sur le bus DC
+#   - (négatif) = l'onduleur INJECTE dans le bus DC (surplus de son MPPT)
+# Le câblage donne l'inverse (ADC2 négatif la nuit quand l'onduleur tire) :
+# le signe est inversé ici ; "ADC2 Inverser sens" reste disponible.
+# Tension = JK (jk_voltage).
+#
+# Calculs dérivés (packages/energy.yaml) :
+#   Circuit DC  = PV2 + injection onduleur - JK    (bilan du bus DC)
+#   Maison AC   = (PV1 - injection onduleur) x rendement onduleur
+#   Maison      = Maison AC + Circuit DC
+# =============================================================================
+
+number:
+  # Zone morte du shunt 2 (bruit ADC) : sous ce courant, puissance = 0
+  - platform: template
+    name: "Onduleur Zone morte"
+    id: inv_deadband
+    unit_of_measurement: A
+    min_value: 0
+    max_value: 5
+    step: 0.01
+    initial_value: 0.1
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:weather-night"
+  # Rendement de conversion de l'onduleur (PV1 -> AC) pour estimer la sortie
+  # AC. À ajuster en comparant "Maison AC Puissance" à une pince AC.
+  - platform: template
+    name: "Onduleur Rendement"
+    id: inv_efficiency
+    unit_of_measurement: "%"
+    min_value: 50
+    max_value: 100
+    step: 1
+    initial_value: 90
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:percent"
+
+# Appelé par "ADC2 Courant" (packages/ads1115_adc.yaml) à chaque mesure.
+script:
+  - id: inv_on_current
+    mode: queued
+    max_runs: 3
+    parameters:
+      i: float
+    then:
+      - lambda: |-
+          float ci = -i;                                 // + = tiré (convention HEM)
+          id(inv_current).publish_state(ci);
+          float v = id(jk_voltage).state;
+          if (isnan(v)) return;
+          float th = id(inv_deadband).state;
+          if (isnan(th)) th = 0.1f;
+          float p = fabsf(ci) > th ? v * ci : 0.0f;      // zone morte
+          id(inv_power).publish_state(p);                // + tiré, - injecté
+          id(inv_power_out).publish_state(p > 0 ? p : 0.0f);
+          id(inv_power_in).publish_state(p < 0 ? -p : 0.0f);
+
+sensor:
+  # + = l'onduleur tire sur le bus DC, - = il injecte
+  - platform: template
+    name: "Onduleur Courant"
+    id: inv_current
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: "mdi:current-dc"
+  - platform: template
+    name: "Onduleur Puissance"
+    id: inv_power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:swap-vertical-bold"
+  - platform: template
+    name: "Onduleur Puissance injectée"
+    id: inv_power_in
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:battery-arrow-up"
+  - platform: template
+    name: "Onduleur Puissance tirée"
+    id: inv_power_out
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: "mdi:battery-arrow-down"
+  - platform: integration
+    name: "Onduleur Énergie injectée"
+    id: inv_energy_in
+    sensor: inv_power_in
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
+  - platform: integration
+    name: "Onduleur Énergie tirée"
+    id: inv_energy_out
+    sensor: inv_power_out
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0

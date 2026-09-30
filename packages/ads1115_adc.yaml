@@ -1,9 +1,9 @@
 # =============================================================================
 # ADS1115 - 2 voies différentielles génériques ADC1 (A0-A1) et ADC2 (A2-A3)
 #
-# ADC1 = shunt BIDIRECTIONNEL de l'onduleur hybride (calculs dans
-# packages/onduleur_adc1.yaml). ADC2 = voie libre (pas de capteur DC Load pour
-# le moment). Les deux voies sont calibrables depuis HA / le serveur web :
+# ADC1 = shunt 1, régulateur PV2 PowerMr 60A (packages/pv2_powermr.yaml).
+# ADC2 = shunt 2, onduleur hybride, bidirectionnel (packages/onduleur_adc2.yaml).
+# Les deux voies sont calibrables depuis HA / le serveur web :
 #
 #   courant = sens x (tension_mesurée / mV_nominal x A_nominal) x gain/100 + offset
 #
@@ -15,7 +15,7 @@
 #     recalculé d'après une pince ampèremétrique.
 #   - interrupteur "ADCx Inverser sens" : remplace l'ancien multiply négatif.
 #
-# Aucune puissance / énergie n'est calculée ici (voir onduleur_adc1.yaml pour ADC1). Gain ADS ±0.512 V (≈ 680 A équivalent sur 75 mV).
+# Aucune puissance / énergie n'est calculée ici (voir pv2_powermr.yaml et onduleur_adc2.yaml). Gain ADS ±0.512 V (≈ 680 A équivalent sur 75 mV).
 # Adresse 0x48 (ADDR à GND) ; le scan I2C au boot confirme l'adresse.
 # =============================================================================
 
@@ -257,7 +257,7 @@ sensor:
             id(adc1_uncal).publish_state(i);
             float ic = i * id(adc1_gain).state / 100.0f + id(adc1_offset).state;
             id(adc1_current).publish_state(ic);
-            // ADC1 = shunt bidirectionnel de l'onduleur : packages/onduleur_adc1.yaml
+            // ADC1 = shunt 1, régulateur PV2 PowerMr 60A : packages/pv2_powermr.yaml
             id(pv2_on_current).execute(ic);
   # Courant avant gain/offset (base des boutons de calibration)
   - platform: template
@@ -293,7 +293,10 @@ sensor:
             float i = x / mv_nom * id(adc2_shunt_a).state;
             if (id(adc2_invert).state) i = -i;
             id(adc2_uncal).publish_state(i);
-            id(adc2_current).publish_state(i * id(adc2_gain).state / 100.0f + id(adc2_offset).state);
+            float ic = i * id(adc2_gain).state / 100.0f + id(adc2_offset).state;
+            id(adc2_current).publish_state(ic);
+            // ADC2 = shunt 2, onduleur hybride (bidirectionnel) : packages/onduleur_adc2.yaml
+            id(inv_on_current).execute(ic);
   # Courant avant gain/offset (base des boutons de calibration)
   - platform: template
     id: adc2_uncal

@@ -1,7 +1,7 @@
 # =============================================================================
 # Capteurs dérivés - référence batterie = JK BMS (RS485)
 #   - puissance JK lissée (table circulaire, fenêtre/intervalle réglables)
-#   - puissance maison = PV (PZEM, entrée MPPT onduleur) + puissance onduleur
+#   - maison = sortie AC onduleur (estimée) + circuit DC (bilan du bus DC)
 #   - énergies JK chargée/déchargée cumulées (Wh, tableau de bord Énergie HA)
 #   - énergie restante / nominale JK (Wh)
 #   - temps restant estimé (min) + heure estimée de fin de charge / décharge,
@@ -122,9 +122,49 @@ sensor:
       }
       return sum / n;
 
-  # Consommation maison (AC) = tout ce qui entre dans l'onduleur moins ce qu'il
-  # renvoie au bus DC : PV (PZEM, entrée de son MPPT) + Onduleur Puissance
-  # (+ = tiré sur le bus DC, - = injecté). Inclut les pertes de l'onduleur.
+  # --- Consommation maison = sortie AC de l'onduleur + circuit DC ---------
+  # Circuit DC (bilan du bus DC) : ce qui entre dans le bus (PV2 PowerMr +
+  # injection de l'onduleur) moins ce qui va dans la batterie (JK, + = charge).
+  - platform: template
+    name: "Circuit DC Puissance"
+    id: dc_load_power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 5s
+    icon: "mdi:current-dc"
+    lambda: |-
+      float pv2 = id(pv2_power_production).state;
+      float inj = id(inv_power_in).state;
+      float bat = id(jk_power).state;
+      if (isnan(bat) || isnan(inj)) return {};
+      if (isnan(pv2)) pv2 = 0;
+      float p = pv2 + inj - bat;
+      return p < 0 ? 0 : p;
+
+  # Sortie AC estimée de l'onduleur : (PV1 + ce qu'il tire du bus DC - ce
+  # qu'il y injecte) x rendement. "Onduleur Puissance" est signée (+ tiré).
+  - platform: template
+    name: "Maison AC Puissance"
+    id: house_ac_power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 5s
+    icon: "mdi:power-socket"
+    lambda: |-
+      float inv = id(inv_power).state;
+      if (isnan(inv)) return {};
+      float pv = id(pv_power).state;
+      if (isnan(pv)) pv = 0;
+      float eff = id(inv_efficiency).state;
+      if (isnan(eff)) eff = 90;
+      float p = (pv + inv) * eff / 100.0f;
+      return p < 0 ? 0 : p;
+
+  # Consommation totale de la maison = AC + DC
   - platform: template
     name: "Maison Puissance"
     id: house_power
@@ -134,12 +174,31 @@ sensor:
     accuracy_decimals: 0
     update_interval: 5s
     lambda: |-
-      float inv = id(inv_power).state;
-      if (isnan(inv)) return {};
-      float pv = id(pv_power).state;
-      if (isnan(pv)) pv = 0;
-      float p = pv + inv;
-      return p < 0 ? 0 : p;
+      float ac = id(house_ac_power).state;
+      float dc = id(dc_load_power).state;
+      if (isnan(ac) && isnan(dc)) return {};
+      return (isnan(ac) ? 0 : ac) + (isnan(dc) ? 0 : dc);
+
+  - platform: integration
+    name: "Maison AC Énergie"
+    id: house_ac_energy
+    sensor: house_ac_power
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
+  - platform: integration
+    name: "Circuit DC Énergie"
+    id: dc_load_energy
+    sensor: dc_load_power
+    time_unit: h
+    restore: true
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: Wh
+    accuracy_decimals: 0
 
   - platform: integration
     name: "Maison Énergie"

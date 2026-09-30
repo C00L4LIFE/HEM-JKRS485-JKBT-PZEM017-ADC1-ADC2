@@ -11,7 +11,7 @@
 #   - Référence tension batterie : fournie par le JK (RS485), plus aucune autre
 #   - Production solaire : PZEM-017 côté PANNEAUX (avant régulateur), avec
 #     interface de calibration (calibre shunt + corrections)
-#   - ADS1115 : ADC1 (A0-A1) = shunt bidirectionnel onduleur hybride, ADC2 (A2-A3) libre,
+#   - ADS1115 : ADC1 (A0-A1) = shunt 1 PowerMr (PV2), ADC2 (A2-A3) = shunt 2 onduleur,
 #     tous deux calibrables
 #   - Pas de capteur "DC Load" pour le moment
 #   - JBD BMS en BLE : inchangé
@@ -32,7 +32,7 @@ substitutions:
 
   # --- Gestion de version (voir VERSION, CHANGELOG.md et packages/version.yaml)
   # Toujours incrémenter ici ET dans le fichier VERSION avant un tag git.
-  project_version: "1.4.1"
+  project_version: "1.5.0"
 
   # --- Pins ---
   # JK BMS RS485 (ancien port eSmart3, même transceiver MAX485)
@@ -122,7 +122,8 @@ packages:
   jbd_bms_ble: !include packages/jbd_bms_ble.yaml
   pzem017_solar: !include packages/pzem017_solar.yaml
   ads1115_adc: !include packages/ads1115_adc.yaml
-  onduleur_adc1: !include packages/onduleur_adc1.yaml
+  pv2_powermr: !include packages/pv2_powermr.yaml
+  onduleur_adc2: !include packages/onduleur_adc2.yaml
   energy: !include packages/energy.yaml
 
 logger:

@@ -9,6 +9,24 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.5.0] - 2026-09-30
+
+### Corrigé
+- Deux shunts (schéma utilisateur) : **ADC1 = shunt 1 = PowerMr (PV2)**,
+  **ADC2 = shunt 2 = onduleur hybride** (bidirectionnel). En v1.4.x l'onduleur
+  était lu à tort sur ADC1. Vérifié par le bilan : PV2 487 W + onduleur 704 W
+  − JK 1051 W = 140 W = circuit DC (120-150 W annoncés).
+- `pv2_powermr.yaml` rétabli (PV2 mesuré directement sur ADC1) ;
+  `onduleur_adc1.yaml` → `onduleur_adc2.yaml` (lit ADC2, zone morte propre).
+- « Maison Puissance » = sortie AC estimée + circuit DC (était ≈ 950 W au lieu
+  de ≈ 550 W).
+
+### Ajouté
+- « Circuit DC Puissance / Énergie » = PV2 + injection onduleur − JK.
+- « Maison AC Puissance / Énergie » = (PV1 + onduleur) × « Onduleur Rendement »
+  (réglable, défaut 90 %).
+- « Onduleur Zone morte » (A).
+
 ## [1.4.1] - 2026-09-30
 
 ### Corrigé

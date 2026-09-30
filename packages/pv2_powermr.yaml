@@ -1,29 +1,20 @@
 # =============================================================================
-# Onduleur hybride (onduleur + MPPT intégré) - shunt BIDIRECTIONNEL sur ADC1
+# PV2 - régulateur PowerMr 60A (sans port de communication)
 #
-# Topologie :
-#   panneaux --[PZEM-017]--> MPPT intégré de l'onduleur --> maison (AC)
-#                                        |
-#                                 [shunt ADC1] bus DC / batterie JK
-#   PowerMr 60A (PV2) ---------------------> bus DC / batterie JK (non mesuré)
+# Mesuré par le SHUNT 1 (75 mV / 100 A, négatif du PowerMr) sur l'ADS1115,
+# voie ADC1 (A0-A1) :
+# courant = "ADC1 Courant" (calibré via les entités ADC1 de
+# packages/ads1115_adc.yaml), tension = JK (jk_voltage, seule référence
+# batterie du système). Reprend l'ancien "MPPT2" de HEM_ESPHOME.
 #
-# Shunt ADC1 = câble DC de l'onduleur, courant dans les deux sens. Convention
-# (identique à l'ancien "Onduleur" de HEM_ESPHOME, dont les entity_id sont
-# réutilisés par HA) :
-#   + (positif) = l'onduleur TIRE sur le bus DC (consommation maison)
-#   - (négatif) = l'onduleur INJECTE dans le bus DC (surplus de son MPPT)
-# (sens inversable par "ADC1 Inverser sens" si le câblage est à l'envers).
-# Tension = JK (jk_voltage, seule référence batterie du système).
+# Filtre nuit : pas de mesure de tension panneaux pour ce régulateur. Sous
+# "PV2 Seuil production" (A), le courant lu est du bruit ADC ou
+# l'autoconsommation du PowerMr : la production est forcée à 0 (la puissance
+# signée "PV2 Puissance" reste brute, non filtrée).
 #
-# Calculs dérivés :
-#   Maison (AC)   = PV (PZEM) + Onduleur Puissance      (packages/energy.yaml)
-#   PV2 (PowerMr) = JK Puissance + Onduleur Puissance   (bilan batterie : ce
-#                   que le JK reçoit en plus de l'apport de l'onduleur)
-#
-# Capteurs "PV2 ..." CONSERVÉS (mêmes entity_id, cartes et automatisations
-# intactes) : ils redeviennent la production du PowerMr, déduite du bilan.
-# "PV2 Seuil production" (A) : zone morte du shunt onduleur (bruit ADC) et
-# seuil de production PV2 (converti en W avec la tension JK).
+# Énergie cumulée persistante : même schéma offset + NVS + helper HA que
+# "PV Énergie totale" (packages/pzem017_solar.yaml). Helper optionnel :
+#   input_number.hem_jk_pv2_energy_total (0 à 999999, pas 0.1, Wh)
 # =============================================================================
 
 globals:
@@ -100,83 +91,15 @@ script:
       i: float
     then:
       - lambda: |-
-          // ADC1 : + = courant vers le bus DC (injection). Convention publiée
-          // (ancien HEM) : + = consommation -> on inverse le signe.
-          float ci = -i;
-          id(inv_current).publish_state(ci);
           float v = id(jk_voltage).state;
           if (isnan(v)) return;
+          float p = v * i;
+          id(pv2_power).publish_state(p);
           float th = id(pv2_threshold).state;
           if (isnan(th)) th = 0.1f;
-          float p = fabsf(ci) > th ? v * ci : 0.0f;   // zone morte (bruit ADC)
-          id(inv_power).publish_state(p);              // + tire, - injecte
-          id(inv_power_out).publish_state(p > 0 ? p : 0.0f);
-          id(inv_power_in).publish_state(p < 0 ? -p : 0.0f);
-          // PV2 (PowerMr) déduit du bilan batterie : JK reçoit = injection
-          // onduleur + PowerMr  ->  PowerMr = JK + Onduleur Puissance.
-          float bat = id(jk_power).state;              // + = charge
-          if (isnan(bat)) return;
-          float pv2 = bat + p;
-          id(pv2_power).publish_state(pv2);
-          id(pv2_power_production).publish_state(pv2 > th * v ? pv2 : 0.0f);
+          id(pv2_power_production).publish_state(i > th ? p : 0.0f);
 
 sensor:
-  # --- Onduleur (bidirectionnel) ---
-  # + = l'onduleur tire sur le bus DC (consommation), - = il injecte
-  - platform: template
-    name: "Onduleur Courant"
-    id: inv_current
-    unit_of_measurement: A
-    device_class: current
-    state_class: measurement
-    accuracy_decimals: 2
-    icon: "mdi:current-dc"
-  - platform: template
-    name: "Onduleur Puissance"
-    id: inv_power
-    unit_of_measurement: W
-    device_class: power
-    state_class: measurement
-    accuracy_decimals: 0
-    icon: "mdi:swap-vertical-bold"
-  - platform: template
-    name: "Onduleur Puissance injectée"
-    id: inv_power_in
-    unit_of_measurement: W
-    device_class: power
-    state_class: measurement
-    accuracy_decimals: 0
-    icon: "mdi:battery-arrow-up"
-  - platform: template
-    name: "Onduleur Puissance tirée"
-    id: inv_power_out
-    unit_of_measurement: W
-    device_class: power
-    state_class: measurement
-    accuracy_decimals: 0
-    icon: "mdi:battery-arrow-down"
-  - platform: integration
-    name: "Onduleur Énergie injectée"
-    id: inv_energy_in
-    sensor: inv_power_in
-    time_unit: h
-    restore: true
-    device_class: energy
-    state_class: total_increasing
-    unit_of_measurement: Wh
-    accuracy_decimals: 0
-  - platform: integration
-    name: "Onduleur Énergie tirée"
-    id: inv_energy_out
-    sensor: inv_power_out
-    time_unit: h
-    restore: true
-    device_class: energy
-    state_class: total_increasing
-    unit_of_measurement: Wh
-    accuracy_decimals: 0
-
-  # --- Capteurs historiques "PV2" (conservés) ---
   - platform: template
     name: "PV2 Puissance"
     id: pv2_power
