@@ -57,6 +57,12 @@ number:
     cell_count_settings:
       name: "JK Nombre de cellules (réglage)"
       internal: true
+    # Capacité nominale (Ah) lue dans la trame réglages : base des estimations
+    # de temps de charge / décharge (packages/energy.yaml).
+    battery_capacity_total_settings:
+      name: "JK Capacité nominale (réglage)"
+      id: jk_capacity_total
+      internal: true
 
 jk_rs485_sniffer:
   - id: jk_sniffer

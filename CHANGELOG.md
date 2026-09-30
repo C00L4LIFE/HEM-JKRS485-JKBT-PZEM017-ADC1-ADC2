@@ -9,6 +9,23 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.3.0] - 2026-09-30
+
+### Ajouté
+- Heure estimée de fin de charge / décharge (« JK Heure fin estimée »,
+  « Batterie Heure fin estimée » pour le JBD) : « Déchargée vers 12:39 »,
+  « Chargée vers 15:10 » (date ajoutée si ce n'est pas aujourd'hui).
+- Réserve de décharge réglable par batterie (« JK Réserve décharge »,
+  « JBD Réserve décharge », défaut 20 %) : en décharge, seule l'énergie
+  au-dessus de la réserve est comptée (utile = restante − nominale × réserve).
+  La charge n'a aucune compensation.
+- JBD : « Batterie Temps restant estimé » rétabli (puissance lissée).
+
+### Modifié
+- JK : capacité nominale lue dans la trame réglages
+  (`battery_capacity_total_settings`) au lieu d'être déduite du SoC ; l'ancienne
+  réserve fixe de 20 Ah est remplacée par la réserve en %.
+
 ## [1.2.0] - 2026-09-29
 
 ### Ajouté

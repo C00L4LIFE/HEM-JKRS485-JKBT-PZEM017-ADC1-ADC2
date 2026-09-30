@@ -3,7 +3,13 @@
 #   - puissance JK lissée (table circulaire, fenêtre/intervalle réglables)
 #   - puissance maison = PV (PZEM-017) + PV2 (PowerMr) - puissance batterie JK
 #   - énergies JK chargée/déchargée cumulées (Wh, tableau de bord Énergie HA)
-#   - énergie restante / nominale JK (Wh), temps restant estimé (min)
+#   - énergie restante / nominale JK (Wh)
+#   - temps restant estimé (min) + heure estimée de fin de charge / décharge,
+#     pour le JK et le JBD. En DÉCHARGE seule la partie utile compte :
+#     utile = restante - nominale x "Réserve décharge" (défaut 20 %).
+#     Ex. 1 kWh, 800 Wh restants, réserve 20 % -> 600 Wh utiles ; à 100 W
+#     -> 360 min ; à 06:39 -> "Déchargée vers 12:39". En CHARGE aucune
+#     compensation : (nominale - restante) / puissance de charge.
 #   - énergies JBD chargée/déchargée (inchangées, le JBD reste en BLE)
 #
 # Aucune autre mesure de tension batterie n'est utilisée que jk_voltage.
@@ -21,8 +27,39 @@ globals:
   - id: pw_avg_last_ms
     type: uint32_t
     initial_value: '0'
+  # Puissance JBD lissée (moyenne exponentielle) pour ses estimations
+  - id: jbd_pw_ema
+    type: float
+    initial_value: 'NAN'
 
 number:
+  # Réserve non utilisée en décharge (% de la capacité nominale)
+  - platform: template
+    name: "JK Réserve décharge"
+    id: jk_reserve_pct
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 90
+    step: 1
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:battery-lock"
+  - platform: template
+    name: "JBD Réserve décharge"
+    id: jbd_reserve_pct
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 90
+    step: 1
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    entity_category: config
+    mode: box
+    icon: "mdi:battery-lock"
   - platform: template
     name: "JK Lissage Fenêtre"
     id: pw_avg_window
@@ -132,21 +169,21 @@ sensor:
       if (isnan(ah) || isnan(v)) return {};
       return ah * v;
 
-  # Énergie nominale JK (Wh), déduite de restante / SoC (la capacité
-  # nominale n'est pas publiée dans les trames RS485 écoutées)
+  # Énergie nominale JK (Wh) = capacité nominale réglée dans le JK (trame
+  # réglages 0x01) x tension. Jamais déduite du SoC : tant que la trame
+  # réglages n'est pas reçue, la valeur reste inconnue (pas d'estimation).
   - platform: template
     name: "JK Énergie nominale"
     id: battery_nominal_energy_wh
     unit_of_measurement: Wh
     device_class: energy_storage
     accuracy_decimals: 0
-    update_interval: 60s
+    update_interval: 10s
     lambda: |-
-      float ah = id(jk_capacity_remaining).state;
-      float soc = id(jk_soc).state;
       float v = id(jk_voltage).state;
-      if (isnan(ah) || isnan(soc) || isnan(v) || soc < 5) return {};
-      return ah / (soc / 100.0f) * v;
+      float nom_ah = id(jk_capacity_total).state;
+      if (isnan(v) || isnan(nom_ah) || nom_ah <= 0) return {};
+      return nom_ah * v;
 
   - platform: integration
     name: "JK Énergie chargée"
@@ -169,8 +206,8 @@ sensor:
     unit_of_measurement: Wh
     accuracy_decimals: 0
 
-  # Temps restant estimé (min) : décharge avec réserve de 20 Ah si
-  # capacité > 20 Ah ; valeur négative = temps de charge restant.
+  # Temps restant estimé (min) : > 0 = décharge (jusqu'à la réserve),
+  # < 0 = temps de charge restant, 0 = ni charge ni décharge.
   - platform: template
     name: "JK Temps restant estimé"
     id: battery_time_remaining
@@ -179,22 +216,22 @@ sensor:
     accuracy_decimals: 0
     update_interval: 5s
     lambda: |-
-      float cur = id(jk_current).state;
       float v = id(jk_voltage).state;
       float rem_ah = id(jk_capacity_remaining).state;
-      float soc = id(jk_soc).state;
-      float avg_p = id(battery_power_avg).state;
-      if (isnan(cur) || isnan(v) || isnan(rem_ah) || isnan(soc) || isnan(avg_p))
-        return {};
+      float nom_wh = id(battery_nominal_energy_wh).state;
+      float p = id(battery_power_avg).state;      // + = charge
+      if (isnan(v) || isnan(rem_ah) || isnan(nom_wh) || isnan(p)) return {};
       float rem_wh = rem_ah * v;
-      if (cur < -0.1f && avg_p < -1.0f) {
-        if (rem_ah > 20.0f)
-          return (rem_wh - (20.0f * v)) / (-avg_p) * 60.0f;
-        return rem_wh / (-avg_p) * 60.0f;
-      } else if (cur > 0.1f && avg_p > 1.0f && soc >= 5) {
-        float nom_ah = rem_ah / (soc / 100.0f);
-        float missing_wh = (nom_ah - rem_ah) * v;
-        return -(missing_wh / avg_p * 60.0f);
+      if (p < -1.0f) {
+        float reserve = id(jk_reserve_pct).state;
+        if (isnan(reserve)) reserve = 20;
+        float usable = rem_wh - nom_wh * reserve / 100.0f;
+        if (usable <= 0) return 0.0f;             // déjà dans la réserve
+        return usable / (-p) * 60.0f;
+      } else if (p > 1.0f) {
+        float missing = nom_wh - rem_wh;
+        if (missing <= 0) return 0.0f;
+        return -(missing / p * 60.0f);
       }
       return 0.0f;
 
@@ -219,3 +256,67 @@ sensor:
     state_class: total_increasing
     unit_of_measurement: Wh
     accuracy_decimals: 0
+
+  # --- JBD : temps restant estimé (même calcul que le JK, réserve JBD) ---
+  - platform: template
+    name: "Batterie Temps restant estimé"
+    id: jbd_time_remaining
+    unit_of_measurement: min
+    icon: "mdi:timer-sand"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      float pw = id(jbd_power).state;
+      if (isnan(pw)) return {};
+      // Lissage exponentiel (~1 min) pour éviter une estimation qui saute
+      if (isnan(id(jbd_pw_ema))) id(jbd_pw_ema) = pw;
+      id(jbd_pw_ema) = id(jbd_pw_ema) * 0.92f + pw * 0.08f;
+      float p = id(jbd_pw_ema);
+      float v = id(jbd_voltage).state;
+      float rem_ah = id(jbd_capacity_remaining).state;
+      float nom_ah = id(jbd_nominal_capacity).state;
+      if (isnan(v) || isnan(rem_ah) || isnan(nom_ah) || nom_ah <= 0) return {};
+      float rem_wh = rem_ah * v, nom_wh = nom_ah * v;
+      if (p < -1.0f) {
+        float reserve = id(jbd_reserve_pct).state;
+        if (isnan(reserve)) reserve = 20;
+        float usable = rem_wh - nom_wh * reserve / 100.0f;
+        if (usable <= 0) return 0.0f;
+        return usable / (-p) * 60.0f;
+      } else if (p > 1.0f) {
+        float missing = nom_wh - rem_wh;
+        if (missing <= 0) return 0.0f;
+        return -(missing / p * 60.0f);
+      }
+      return 0.0f;
+
+# Heure estimée de fin de charge / décharge (heure locale, NTP)
+text_sensor:
+  - platform: template
+    name: "JK Heure fin estimée"
+    id: jk_finish_time
+    icon: "mdi:clock-end"
+    update_interval: 30s
+    lambda: |-
+      float m = id(battery_time_remaining).state;
+      auto now = id(sntp_time).now();
+      if (isnan(m) || m == 0 || !now.is_valid()) return {"—"};
+      if (fabsf(m) > 7 * 24 * 60) return {m > 0 ? "Décharge > 7 j" : "Charge > 7 j"};
+      auto t = ESPTime::from_epoch_local(now.timestamp + (time_t) (fabsf(m) * 60.0f));
+      char hm[16];
+      t.strftime(hm, sizeof(hm), t.day_of_year == now.day_of_year ? "%H:%M" : "%d/%m %H:%M");
+      return {std::string(m > 0 ? "Déchargée vers " : "Chargée vers ") + hm};
+  - platform: template
+    name: "Batterie Heure fin estimée"
+    id: jbd_finish_time
+    icon: "mdi:clock-end"
+    update_interval: 30s
+    lambda: |-
+      float m = id(jbd_time_remaining).state;
+      auto now = id(sntp_time).now();
+      if (isnan(m) || m == 0 || !now.is_valid()) return {"—"};
+      if (fabsf(m) > 7 * 24 * 60) return {m > 0 ? "Décharge > 7 j" : "Charge > 7 j"};
+      auto t = ESPTime::from_epoch_local(now.timestamp + (time_t) (fabsf(m) * 60.0f));
+      char hm[16];
+      t.strftime(hm, sizeof(hm), t.day_of_year == now.day_of_year ? "%H:%M" : "%d/%m %H:%M");
+      return {std::string(m > 0 ? "Déchargée vers " : "Chargée vers ") + hm};
