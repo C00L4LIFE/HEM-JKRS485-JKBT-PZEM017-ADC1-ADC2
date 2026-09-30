@@ -9,6 +9,22 @@ taguée `vX.Y.Z` dans git.
 
 ## [Non publié]
 
+## [1.4.1] - 2026-09-30
+
+### Corrigé
+- Topologie confirmée : le PZEM-017 mesure l'entrée PV du MPPT de l'onduleur,
+  le PowerMr (PV2) charge toujours la batterie sans être mesuré directement.
+- « Maison Puissance » = PV (PZEM) + Onduleur Puissance (consommation AC réelle,
+  y compris la part couverte par le MPPT de l'onduleur ; v1.4.0 affichait 0 W
+  en journée).
+- « PV2 … » = production PowerMr déduite du bilan batterie
+  (JK Puissance + Onduleur Puissance).
+- « Onduleur Courant / Puissance » : convention de l'ancien HEM (+ = tiré /
+  consommation, − = injecté) — HA leur a réattribué les anciens entity_id.
+
+### Supprimé
+- « Bus DC écart » (remplacé par le calcul PV2).
+
 ## [1.4.0] - 2026-09-30
 
 ### Modifié

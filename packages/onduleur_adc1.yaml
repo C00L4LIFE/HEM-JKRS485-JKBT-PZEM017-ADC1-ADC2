@@ -1,27 +1,29 @@
 # =============================================================================
 # Onduleur hybride (onduleur + MPPT intégré) - shunt BIDIRECTIONNEL sur ADC1
 #
-# Le shunt 75 mV / 100 A de l'ADS1115 (voie ADC1, A0-A1) est sur le câble DC
-# de l'onduleur. L'onduleur jouant aussi le rôle de MPPT, le courant circule
-# dans les deux sens :
-#   + (positif) = l'onduleur INJECTE dans le bus DC / la batterie (son MPPT
-#                 produit plus que la maison ne consomme)
-#   - (négatif) = l'onduleur TIRE sur le bus DC / la batterie (maison)
+# Topologie :
+#   panneaux --[PZEM-017]--> MPPT intégré de l'onduleur --> maison (AC)
+#                                        |
+#                                 [shunt ADC1] bus DC / batterie JK
+#   PowerMr 60A (PV2) ---------------------> bus DC / batterie JK (non mesuré)
+#
+# Shunt ADC1 = câble DC de l'onduleur, courant dans les deux sens. Convention
+# (identique à l'ancien "Onduleur" de HEM_ESPHOME, dont les entity_id sont
+# réutilisés par HA) :
+#   + (positif) = l'onduleur TIRE sur le bus DC (consommation maison)
+#   - (négatif) = l'onduleur INJECTE dans le bus DC (surplus de son MPPT)
 # (sens inversable par "ADC1 Inverser sens" si le câblage est à l'envers).
 # Tension = JK (jk_voltage, seule référence batterie du système).
 #
-# Capteurs "Onduleur ..." : courant / puissance signés, puissances de charge
-# et de décharge (>= 0), énergies injectée / tirée cumulées.
+# Calculs dérivés :
+#   Maison (AC)   = PV (PZEM) + Onduleur Puissance      (packages/energy.yaml)
+#   PV2 (PowerMr) = JK Puissance + Onduleur Puissance   (bilan batterie : ce
+#                   que le JK reçoit en plus de l'apport de l'onduleur)
 #
-# Anciens capteurs "PV2 ..." CONSERVÉS (mêmes noms -> mêmes entity_id dans HA,
-# cartes et automatisations intactes), avec le sens suivant :
-#   "PV2 Puissance"              = puissance onduleur signée
-#   "PV2 Puissance (production)" = apport net du MPPT de l'onduleur (part > 0)
-#   "PV2 Puissance moyenne"      = moyenne lissée de cet apport net
-#   "PV2 Énergie totale"         = énergie injectée cumulée (persistante)
-#
-# "PV2 Seuil production" (A) sert de zone morte dans les DEUX sens : sous ce
-# courant, les puissances dérivées sont forcées à 0 (bruit ADC la nuit).
+# Capteurs "PV2 ..." CONSERVÉS (mêmes entity_id, cartes et automatisations
+# intactes) : ils redeviennent la production du PowerMr, déduite du bilan.
+# "PV2 Seuil production" (A) : zone morte du shunt onduleur (bruit ADC) et
+# seuil de production PV2 (converti en W avec la tension JK).
 # =============================================================================
 
 globals:
@@ -98,22 +100,29 @@ script:
       i: float
     then:
       - lambda: |-
-          id(inv_current).publish_state(i);
+          // ADC1 : + = courant vers le bus DC (injection). Convention publiée
+          // (ancien HEM) : + = consommation -> on inverse le signe.
+          float ci = -i;
+          id(inv_current).publish_state(ci);
           float v = id(jk_voltage).state;
           if (isnan(v)) return;
-          float p = v * i;                      // + = injecte, - = tire
           float th = id(pv2_threshold).state;
           if (isnan(th)) th = 0.1f;
-          float pe = fabsf(i) > th ? p : 0.0f;  // zone morte (bruit ADC)
-          id(inv_power).publish_state(pe);
-          id(inv_power_in).publish_state(pe > 0 ? pe : 0.0f);
-          id(inv_power_out).publish_state(pe < 0 ? -pe : 0.0f);
-          // Capteurs historiques conservés (cartes / automatisations)
-          id(pv2_power).publish_state(p);
-          id(pv2_power_production).publish_state(pe > 0 ? pe : 0.0f);
+          float p = fabsf(ci) > th ? v * ci : 0.0f;   // zone morte (bruit ADC)
+          id(inv_power).publish_state(p);              // + tire, - injecte
+          id(inv_power_out).publish_state(p > 0 ? p : 0.0f);
+          id(inv_power_in).publish_state(p < 0 ? -p : 0.0f);
+          // PV2 (PowerMr) déduit du bilan batterie : JK reçoit = injection
+          // onduleur + PowerMr  ->  PowerMr = JK + Onduleur Puissance.
+          float bat = id(jk_power).state;              // + = charge
+          if (isnan(bat)) return;
+          float pv2 = bat + p;
+          id(pv2_power).publish_state(pv2);
+          id(pv2_power_production).publish_state(pv2 > th * v ? pv2 : 0.0f);
 
 sensor:
   # --- Onduleur (bidirectionnel) ---
+  # + = l'onduleur tire sur le bus DC (consommation), - = il injecte
   - platform: template
     name: "Onduleur Courant"
     id: inv_current
