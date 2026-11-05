@@ -224,7 +224,9 @@ sensor:
     unit_of_measurement: Wh
     accuracy_decimals: 0
 
-  # Énergie restante JK (Wh) = capacité restante (Ah) x tension JK
+  # Énergie restante JK (Wh) = capacité restante (Ah) x tension nominale
+  # du pack (nb cellules x 3,2 V LiFePO4) : même base que l'énergie
+  # nominale, pour que restante <= nominale à 100 % de SoC.
   - platform: template
     name: "JK Énergie restante"
     id: battery_remaining_wh
@@ -234,13 +236,15 @@ sensor:
     update_interval: 5s
     lambda: |-
       float ah = id(jk_capacity_remaining).state;
-      float v = id(jk_voltage).state;
-      if (isnan(ah) || isnan(v)) return {};
-      return ah * v;
+      float cells = id(jk_cell_count).state;
+      if (isnan(ah) || isnan(cells) || cells <= 0) return {};
+      return ah * cells * 3.2f;
 
-  # Énergie nominale JK (Wh) = capacité nominale réglée dans le JK (trame
-  # réglages 0x01) x tension. Jamais déduite du SoC : tant que la trame
-  # réglages n'est pas reçue, la valeur reste inconnue (pas d'estimation).
+  # Énergie nominale JK (Wh) = nb cellules x capacité nominale (Ah) x
+  # 3,2 V (tension nominale LiFePO4), les deux lus dans la trame réglages
+  # 0x01. Ex. 16s 280 Ah -> 16 x 280 x 3,2 = 14 336 Wh. Indépendante de la
+  # tension mesurée et jamais déduite du SoC : tant que la trame réglages
+  # n'est pas reçue, la valeur reste inconnue (pas d'estimation).
   - platform: template
     name: "JK Énergie nominale"
     id: battery_nominal_energy_wh
@@ -249,10 +253,10 @@ sensor:
     accuracy_decimals: 0
     update_interval: 10s
     lambda: |-
-      float v = id(jk_voltage).state;
+      float cells = id(jk_cell_count).state;
       float nom_ah = id(jk_capacity_total).state;
-      if (isnan(v) || isnan(nom_ah) || nom_ah <= 0) return {};
-      return nom_ah * v;
+      if (isnan(cells) || cells <= 0 || isnan(nom_ah) || nom_ah <= 0) return {};
+      return cells * nom_ah * 3.2f;
 
   - platform: integration
     name: "JK Énergie chargée"
@@ -285,12 +289,10 @@ sensor:
     accuracy_decimals: 0
     update_interval: 5s
     lambda: |-
-      float v = id(jk_voltage).state;
-      float rem_ah = id(jk_capacity_remaining).state;
+      float rem_wh = id(battery_remaining_wh).state;
       float nom_wh = id(battery_nominal_energy_wh).state;
       float p = id(battery_power_avg).state;      // + = charge
-      if (isnan(v) || isnan(rem_ah) || isnan(nom_wh) || isnan(p)) return {};
-      float rem_wh = rem_ah * v;
+      if (isnan(rem_wh) || isnan(nom_wh) || isnan(p)) return {};
       if (p < -1.0f) {
         float reserve = id(jk_reserve_pct).state;
         if (isnan(reserve)) reserve = 20;
@@ -341,10 +343,12 @@ sensor:
       if (isnan(id(jbd_pw_ema))) id(jbd_pw_ema) = pw;
       id(jbd_pw_ema) = id(jbd_pw_ema) * 0.92f + pw * 0.08f;
       float p = id(jbd_pw_ema);
-      float v = id(jbd_voltage).state;
+      // Base énergie : nb cellules x 3,2 V (tension nominale LiFePO4)
+      float cells = id(jbd_cell_count).state;
       float rem_ah = id(jbd_capacity_remaining).state;
       float nom_ah = id(jbd_nominal_capacity).state;
-      if (isnan(v) || isnan(rem_ah) || isnan(nom_ah) || nom_ah <= 0) return {};
+      if (isnan(cells) || cells <= 0 || isnan(rem_ah) || isnan(nom_ah) || nom_ah <= 0) return {};
+      float v = cells * 3.2f;
       float rem_wh = rem_ah * v, nom_wh = nom_ah * v;
       if (p < -1.0f) {
         float reserve = id(jbd_reserve_pct).state;

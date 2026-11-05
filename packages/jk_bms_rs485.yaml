@@ -56,6 +56,7 @@ number:
     # d'entité HA, et aucune écriture possible (écoute seule).
     cell_count_settings:
       name: "JK Nombre de cellules (réglage)"
+      id: jk_cell_count
       internal: true
     # Capacité nominale (Ah) lue dans la trame réglages : base des estimations
     # de temps de charge / décharge (packages/energy.yaml).
